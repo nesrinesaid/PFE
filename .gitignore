@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Data files (Do not push your raw or processed datasets)
+data/
+*.csv
+
+# Logs and OS files
+*.log
+.DS_Store
+Thumbs.db
+
+# Note: Generated graphs (*.png) are NOT ignored so you can display them on GitHub! If you want to ignore them, add *.png to this file.
