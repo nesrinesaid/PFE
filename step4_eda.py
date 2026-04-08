@@ -16,185 +16,202 @@ def identify_outliers_iqr(series):
     upper_bound = Q3 + 1.5 * IQR
     return lower_bound, upper_bound
 
-def safe_col(df, col_kwd):
-    return next((c for c in df.columns if col_kwd in c), None)
-
 def main():
-    print("🚀 DÉMARRAGE: ÉTAPE 4️⃣ - EXPLORATORY DATA ANALYSIS (EDA) - AVEC ENRICHISSEMENT\n")
+    print("🚀 DÉMARRAGE: ÉTAPE 4️⃣ - EXPLORATORY DATA ANALYSIS (EDA)\n")
     
+    # Load enriched data from step 2.5
     input_file = 'data_cleaned_enriched.csv'
     if not os.path.exists(input_file):
-        print(f"❌ {input_file} introuvable.")
+        print(f"❌ {input_file} introuvable. Veuillez exécuter step2_5_enrich_data.py d'abord.")
         return
         
-    df = pd.read_csv(input_file, parse_dates=['DAT_V'])
-    df['YEAR_MONTH'] = pd.to_datetime(df['YEAR_MONTH'])
+    print("⏳ Chargement des données...")
+    df = pd.read_csv(input_file, parse_dates=['DATV'])
+    
+    # Rename DATV to DAT_V for consistency
+    df = df.rename(columns={'DATV': 'DAT_V'})
+    
+    # Ensure YEAR_MONTH exists
+    if 'YEAR_MONTH' not in df.columns:
+        print("⚠️ YEAR_MONTH not found, creating it...")
+        if 'YEAR' in df.columns and 'MONTH' in df.columns:
+            df['YEAR_MONTH'] = df['YEAR'].astype(str) + '-' + df['MONTH'].astype(str).str.zfill(2)
+        else:
+            print("❌ Cannot create YEAR_MONTH without YEAR and MONTH columns")
+            return
+
+    if 'DAT_V' not in df.columns:
+        print("❌ DAT_V column not found!")
+        return
+
+    print(f"✅ Données chargées: {df.shape}")
 
     print("\n--- PART 1: General Statistics ---")
-    print(f"Total véhicules : {len(df):,}")
-    print(f"Date début : {df['DAT_V'].min().date()} | Date fin : {df['DAT_V'].max().date()}")
-    
-    col_marque = safe_col(df, 'MARQUE')
-    if col_marque: print(f"Marques uniques : {df[col_marque].nunique()}")
-        
+    print(f"Total des véhicules : {len(df):,}")
+    print(f"Date de début : {df['DAT_V'].min().date()}")
+    print(f"Date de fin : {df['DAT_V'].max().date()}")
+    if 'YEAR' in df.columns:
+        print(f"Années distinctes : {df['YEAR'].nunique()}")
+    if 'MARQUE' in df.columns:
+        print(f"Marques uniques : {df['MARQUE'].nunique()}")
+
+    print("\n⏳ PART 2: Création de la métrique de Ventes...")
     ventes_mensuelles = df.groupby('YEAR_MONTH').size().reset_index(name='Ventes')
+    
+    # Convert YEAR_MONTH to datetime
+    ventes_mensuelles['YEAR_MONTH'] = pd.to_datetime(ventes_mensuelles['YEAR_MONTH'], errors='coerce')
+    
     ventes_mensuelles['YEAR'] = ventes_mensuelles['YEAR_MONTH'].dt.year
     ventes_mensuelles['MONTH'] = ventes_mensuelles['YEAR_MONTH'].dt.month
+    print("✅ Métrique Ventes créée par mois.")
 
-    # PART 3: Temporal Analysis
+    print("\n⏳ PART 3: Analyse Temporelle...")
+    # Graph 1: Sales over time
     plt.figure(figsize=(14, 6))
-    plt.plot(ventes_mensuelles['YEAR_MONTH'], ventes_mensuelles['Ventes'], marker='o', color='b')
-    for y in ventes_mensuelles['YEAR'].unique():
-        plt.axvline(pd.to_datetime(f'{y}-01-01'), color='gray', linestyle='--', alpha=0.5)
-    plt.title("Ventes de véhicules dans le temps")
-    plt.savefig('01_Ventes_Over_Time.png')
+    plt.plot(ventes_mensuelles['YEAR_MONTH'], ventes_mensuelles['Ventes'], marker='o', linestyle='-', color='b', linewidth=2)
+    plt.title('Ventes de véhicules dans le temps (2019-2026)', fontsize=14, fontweight='bold')
+    plt.xlabel('Date')
+    plt.ylabel('Nombre de véhicules (Ventes)')
+    years = ventes_mensuelles['YEAR_MONTH'].dt.year.unique()
+    for year in years:
+        plt.axvline(pd.to_datetime(f'{year}-01-01'), color='gray', linestyle='--', alpha=0.5)
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig('01_Ventes_Over_Time.png', dpi=300)
     plt.close()
+    print("✅ 01_Ventes_Over_Time.png")
     
+    # Graph 2: Sales by year
     plt.figure(figsize=(10, 6))
-    ax = df.groupby('YEAR').size().plot(kind='bar', color='skyblue')
-    plt.title("Ventes par Année")
+    ventes_annee = df.groupby('YEAR').size()
+    ax = ventes_annee.plot(kind='bar', color='skyblue', edgecolor='navy')
+    plt.title('Ventes par Année', fontsize=14, fontweight='bold')
+    plt.xlabel('Année')
+    plt.ylabel('Total de véhicules')
+    # Add value labels
     for p in ax.patches:
-        ax.annotate(f"{int(p.get_height()):,}", (p.get_x() + p.get_width() / 2., p.get_height()), ha='center', va='bottom')
-    plt.savefig('02_Ventes_Par_Annee.png')
+        ax.annotate(f"{int(p.get_height()):,}", (p.get_x() + p.get_width() / 2., p.get_height()),
+                    ha='center', va='bottom', fontsize=9)
+    plt.tight_layout()
+    plt.savefig('02_Ventes_Par_Annee.png', dpi=300)
     plt.close()
+    print("✅ 02_Ventes_Par_Annee.png")
 
-    # PART 4: Seasonality
+    print("\n⏳ PART 4: Analyse de Saisonnalité...")
     saisonnalite = ventes_mensuelles.groupby('MONTH')['Ventes'].mean().reset_index()
     plt.figure(figsize=(10, 6))
     sns.barplot(data=saisonnalite, x='MONTH', y='Ventes', palette='viridis')
-    plt.title("Saisonnalité")
-    plt.savefig('03_Saisonnalite.png')
+    plt.title('Ventes Moyennes par Mois (Saisonnalité)', fontsize=14, fontweight='bold')
+    plt.xlabel('Mois (1=Jan, 12=Dec)')
+    plt.ylabel('Nombre moyen de véhicules')
+    plt.tight_layout()
+    plt.savefig('03_Saisonnalite.png', dpi=300)
     plt.close()
+    print("✅ 03_Saisonnalite.png")
     
     mois_fort = saisonnalite.loc[saisonnalite['Ventes'].idxmax(), 'MONTH']
     mois_faible = saisonnalite.loc[saisonnalite['Ventes'].idxmin(), 'MONTH']
+    print(f"   Mois le plus fort : {int(mois_fort)}")
+    print(f"   Mois le plus faible : {int(mois_faible)}")
 
-    # PART 5: Top Marques
-    if col_marque:
+    print("\n⏳ PART 5: Analyse de Marché...")
+    if 'MARQUE' in df.columns:
+        top_marques = df['MARQUE'].value_counts().head(10)
         plt.figure(figsize=(10, 6))
-        df[col_marque].value_counts().head(10).plot(kind='barh', color='coral').invert_yaxis()
-        plt.title("Top Marques")
-        plt.savefig('04_Top_Marques.png')
+        ax = top_marques.plot(kind='barh', color='coral', edgecolor='darkred')
+        plt.title('Top 10 des Marques par Nombre de Véhicules', fontsize=14, fontweight='bold')
+        plt.xlabel('Nombre de véhicules')
+        plt.ylabel('Marque')
+        plt.gca().invert_yaxis()
+        for p in ax.patches:
+            ax.annotate(f"{int(p.get_width()):,}", (p.get_width(), p.get_y() + p.get_height()/2), 
+                       va='center', ha='left', fontsize=9)
+        plt.tight_layout()
+        plt.savefig('04_Top_Marques.png', dpi=300)
         plt.close()
+        print("✅ 04_Top_Marques.png")
+        
+        print(f"\n   Top marque : {top_marques.index[0]} ({top_marques.values[0]:,})")
+        print(f"   Top 3 : {top_marques.values[:3].sum():,} ({top_marques.values[:3].sum()/len(df)*100:.1f}%)")
 
-    # PART 6: Missing Months
+    print("\n⏳ PART 6: Détection des Mois Manquants...")
     min_date = ventes_mensuelles['YEAR_MONTH'].min()
     max_date = ventes_mensuelles['YEAR_MONTH'].max()
     complete_months = pd.date_range(start=min_date, end=max_date, freq='MS')
-    missing_months = set(complete_months) - set(ventes_mensuelles['YEAR_MONTH'])
-    if missing_months:
-        print(f"⚠️ {len(missing_months)} mois manquants détectés.")
+    existing_months = ventes_mensuelles['YEAR_MONTH']
+    missing_months = set(complete_months) - set(existing_months)
+    
+    if len(missing_months) > 0:
+        print(f"⚠️ {len(missing_months)} mois manquants détectés:")
+        for m in sorted(missing_months):
+            print(f"  - {m.date()}")
     else:
-        print("✅ Aucun mois manquant!")
+        print("✅ Couverture COMPLÈTE: Aucun mois manquant!")
 
-    # PART 7: Outliers
+    print("\n⏳ PART 7: Détection des Outliers...")
     l_bound, u_bound = identify_outliers_iqr(ventes_mensuelles['Ventes'])
+    outliers = ventes_mensuelles[(ventes_mensuelles['Ventes'] < l_bound) | (ventes_mensuelles['Ventes'] > u_bound)]
+    
+    print(f"\n   Statistiques Mensuelles:")
+    print(f"   - Moyenne : {ventes_mensuelles['Ventes'].mean():.0f} véhicules")
+    print(f"   - Médiane : {ventes_mensuelles['Ventes'].median():.0f}")
+    print(f"   - Std Dev : {ventes_mensuelles['Ventes'].std():.0f}")
+    print(f"   - Min : {ventes_mensuelles['Ventes'].min():.0f}")
+    print(f"   - Max : {ventes_mensuelles['Ventes'].max():.0f}")
+    
+    if len(outliers) > 0:
+        print(f"\n   ⚠️ {len(outliers)} mois avec ventes aberrantes (Outliers):")
+        for idx, row in outliers.iterrows():
+            print(f"     - {row['YEAR_MONTH'].date()} : {row['Ventes']:.0f} véhicules")
+    else:
+        print("   ✅ Aucun outlier détecté.")
+        
     plt.figure(figsize=(10, 6))
     sns.boxplot(data=ventes_mensuelles, x='YEAR', y='Ventes', palette='Set2')
-    plt.title("Distribution des ventes")
-    plt.savefig('05_BoxPlot_Outliers.png')
+    plt.title('Distribution des Ventes par Année', fontsize=14, fontweight='bold')
+    plt.xlabel('Année')
+    plt.ylabel('Ventes')
+    plt.tight_layout()
+    plt.savefig('05_BoxPlot_Outliers.png', dpi=300)
     plt.close()
+    print("✅ 05_BoxPlot_Outliers.png")
 
-    volatilite = (ventes_mensuelles['Ventes'].std() / ventes_mensuelles['Ventes'].mean()) * 100
-
-    print("\n--- NEW ENRICHMENT ANALYSIS ---")
+    print("\n" + "="*70)
+    print("📊 KEY INSIGHTS")
+    print("="*70)
     
-    col_ville = safe_col(df, 'VILLE')
-    if col_ville:
-        plt.figure(figsize=(10, 6))
-        top_v = df[col_ville].value_counts().head(10)
-        top_v.plot(kind='bar', color='teal')
-        plt.title("Top Villes")
-        plt.xticks(rotation=45, ha='right')
-        plt.tight_layout()
-        plt.savefig('06A_Ventes_Par_Ville.png')
-        plt.close()
+    if 'MARQUE' in df.columns:
+        print(f"\n🏆 Marché:")
+        print(f"   - Marque dominante : {top_marques.index[0]}")
+        print(f"   - Part du marché : {top_marques.values[0]/len(df)*100:.1f}%")
+    
+    # Growth / Decline trend
+    yearly_sales = df.groupby('YEAR').size()
+    if len(yearly_sales) >= 2:
+        start_year, end_year = yearly_sales.index[0], yearly_sales.index[-1]
+        trend = (yearly_sales[end_year] - yearly_sales[start_year]) / yearly_sales[start_year] * 100
+        print(f"\n📈 Tendance Globale ({start_year}-{end_year}): {trend:+.1f}%")
         
-        conc = top_v.head(3).sum() / len(df.dropna(subset=[col_ville])) * 100
-        print(f"📍 Concentration géographique: Les 3 premières villes détiennent {conc:.1f}% du marché!")
-
-    col_seg = safe_col(df, 'SEGMENT')
-    if col_seg:
-        plt.figure(figsize=(10, 6))
-        top_s = df[col_seg].value_counts().head(10)
-        top_s.plot(kind='bar', color='purple')
-        plt.title("Top Segments")
-        plt.xticks(rotation=45, ha='right')
-        plt.tight_layout()
-        plt.savefig('06B_Ventes_Par_Segment.png')
-        plt.close()
-        print(f"🚙 Segment dominant: {top_s.index[0]} avec {top_s.values[0]:,} véhicules")
-
-    col_dist = safe_col(df, 'DISTRIBUTEUR')
-    if col_dist:
-        plt.figure(figsize=(10, 6))
-        df[col_dist].value_counts().head(10).plot(kind='barh', color='orange').invert_yaxis()
-        plt.title("Top Distributeurs")
-        plt.tight_layout()
-        plt.savefig('06C_Ventes_Par_Distributeur.png')
-        plt.close()
-
-    col_groupe = safe_col(df, 'GROUPE')
-    if col_groupe:
-        plt.figure(figsize=(10, 6))
-        g_counts = df[col_groupe].value_counts().head(10)
-        g_counts.plot(kind='barh', color='darkred').invert_yaxis()
-        plt.title("Ventes par Groupe")
-        plt.tight_layout()
-        plt.savefig('06D_Ventes_Par_Groupe.png')
-        plt.close()
-        if not g_counts.empty:
-            print(f"🏢 Groupe dominant: {g_counts.index[0]} ({g_counts.values[0] / len(df.dropna(subset=[col_groupe])) * 100:.1f}%)")
-
-    col_cont = safe_col(df, 'CONTINENT')
-    if col_cont:
-        cont_counts = df[col_cont].value_counts()
-        plt.figure(figsize=(8, 8))
-        plt.pie(cont_counts, labels=cont_counts.index, autopct='%1.1f%%', startangle=140)
-        plt.title("Répartition Continentale (Pie)")
-        plt.savefig('06E_Marche_Par_Continent_Pie.png')
-        plt.close()
-        
-        plt.figure(figsize=(10, 6))
-        cont_counts.plot(kind='bar', color='green')
-        plt.title("Répartition Continentale (Bar)")
-        plt.savefig('06E_Marche_Par_Continent_Bar.png')
-        plt.close()
-        
-        if 'Europe' in cont_counts:
-            print(f"🌍 L'Europe représente {(cont_counts['Europe'] / cont_counts.sum() * 100):.1f}% des données.")
-        
-        # Evolution over time
-        df_cont_time = df.groupby(['YEAR', col_cont]).size().unstack()
-        plt.figure(figsize=(12, 6))
-        df_cont_time.plot(marker='o')
-        plt.title('Evolution des ventes par continent')
-        plt.savefig('06F_Evolution_Continents_Over_Time.png')
-        plt.close()
-        
-    col_marche = safe_col(df, 'MARCHE')
-    if col_marche:
-        plt.figure(figsize=(8, 6))
-        df[col_marche].value_counts().plot(kind='bar', color=['blue', 'gray'])
-        plt.title("Marché VP vs Utilitaire")
-        plt.savefig('06G_Marche_VP_vs_Utilitaire.png')
-        plt.close()
-
-    col_usage = safe_col(df, 'USAGE')
-    if col_usage:
-        plt.figure(figsize=(10, 6))
-        df[col_usage].value_counts().head(10).plot(kind='bar', color='brown')
-        plt.title("Ventes par Usage")
-        plt.xticks(rotation=45, ha='right')
-        plt.tight_layout()
-        plt.savefig('06H_Ventes_Par_Usage.png')
-        plt.close()
-
-    print(f"\n✅ RECAP DES INSIGHTS GLOBAUX :")
-    print(f"- Mois de pointe annuel: {mois_fort}, Mois le plus faible: {mois_faible}")
-    print(f"- Volatilité globale modulaire de {volatilite:.1f}%")
-    if col_marque: print(f"- Première marque nationale: {df[col_marque].mode()[0]}")
-    print("🚀 NOUVELLE EDA TERMINÉE AVEC SUCCÈS! TOUS LES GRAPHIQUES ONT ÉTÉ SAUVEGARDÉS.")
+    print(f"\n📅 Saisonnalité:")
+    forte_sales = saisonnalite[saisonnalite['MONTH']==mois_fort]['Ventes'].values[0]
+    faible_sales = saisonnalite[saisonnalite['MONTH']==mois_faible]['Ventes'].values[0]
+    print(f"   - Mois le plus fort : {int(mois_fort)} (Ventes moyennes : {forte_sales:.0f})")
+    print(f"   - Mois le plus faible : {int(mois_faible)} (Ventes moyennes : {faible_sales:.0f})")
+    
+    print(f"\n📊 Qualité des données:")
+    print(f"   - Volatilité : {(ventes_mensuelles['Ventes'].std() / ventes_mensuelles['Ventes'].mean() * 100):.1f}%")
+    print(f"   - Mois manquants : {len(missing_months)}")
+    print(f"   - Outliers : {len(outliers)}")
+    
+    print("\n" + "="*70)
+    print("✅ EDA TERMINÉE AVEC SUCCÈS!")
+    print("="*70)
+    print("\n5 visualisations PNG générées:")
+    print("   - 01_Ventes_Over_Time.png")
+    print("   - 02_Ventes_Par_Annee.png")
+    print("   - 03_Saisonnalite.png")
+    print("   - 04_Top_Marques.png")
+    print("   - 05_BoxPlot_Outliers.png")
 
 if __name__ == '__main__':
     main()

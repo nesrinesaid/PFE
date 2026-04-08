@@ -21,14 +21,15 @@ def main():
         return
         
     print("⏳ Chargement des données...")
-    df_raw = pd.read_csv(input_file, parse_dates=['DAT_V'])
+    df_raw = pd.read_csv(input_file, parse_dates=['DATV'])
+    df_raw = df_raw.rename(columns={'DATV': 'DAT_V'})
     df_raw['YEAR_MONTH_dt'] = pd.to_datetime(df_raw['YEAR_MONTH'])
 
     print("⏳ PART 1: Agrégation au niveau mensuel avec variables dominantes (Market Dynamics)...")
     df_monthly = df_raw.groupby('YEAR_MONTH_dt').size().reset_index(name='Ventes')
     
     # We dynamically attach the mode of our massive categorical enrichment sheets to identify the trend of the month
-    cols_to_mode = ['MARQUE', 'GENRE', 'USAGE', 'SEGMENT', 'DISTRIBUTEUR', 'CONTINENT']
+    cols_to_mode = ['MARQUE', 'GENRE', 'USAGE', 'SEGMENT', 'DISTRIBUTEUR', 'CONTINENT', 'GROUPE']
     for basic_col in cols_to_mode:
         matched = safe_col(df_raw, basic_col)
         if matched:
