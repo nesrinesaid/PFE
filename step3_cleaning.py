@@ -18,7 +18,7 @@ GARBAGE_COLS = [
     # Pivot table labels / aggregates
     'TOUS', 'TOTAL', 'MOIS_11', 'DAT1',
     # Pre-aggregated yearly sales columns (belong in a separate report, not here)
-    'VENTES_2019', 'VENTES_2021', 'VENTES_2023', 'VENTES_2024', 'VENTES_2025',
+    'VENTES_2019', 'VENTES_2020', 'VENTES_2021', 'VENTES_2022', 'VENTES_2023', 'VENTES_2024', 'VENTES_2025',
     # Duplicate / corrupted columns
     'MARQUE.1',   # duplicate of MARQUE
     'DMC.1',      # duplicate of DMC, always null
@@ -78,7 +78,8 @@ def drop_garbage_columns(df):
 def main():
     print("🚀 STEP 3 — INITIAL DATA CLEANING\n")
 
-    data_dir = './data/'
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    data_dir = os.path.join(project_root, 'data')
     if not os.path.exists(data_dir):
         os.makedirs(data_dir, exist_ok=True)
         print(f"⚠️  Created {data_dir}")
@@ -92,7 +93,7 @@ def main():
         print(f"  - {os.path.basename(f)}")
 
     if not data_files:
-        print("❌ No data files found in ./data/")
+        print(f"❌ No data files found in {data_dir}")
         return
 
     # ── 2. Load & concatenate all Excel files ────────────────────────────────
@@ -201,7 +202,7 @@ def main():
         print(f"     → Request these files from M. Sami Ben Youssef (ARTES)")
 
     # ── 12. Save ──────────────────────────────────────────────────────────────
-    output_file = 'data_intermediate.csv'
+    output_file = os.path.join(project_root, 'data_intermediate.csv')
     df.to_csv(output_file, index=False)
     size_mb = os.path.getsize(output_file) / 1024 / 1024
     print(f"\n✅ Saved: {output_file}")

@@ -11,11 +11,14 @@ ENV/
 
 # Data files (Do not push your raw or processed datasets)
 data/
-*.csv
 
 # Logs and OS files
 *.log
 .DS_Store
 Thumbs.db
+.vscode/
+
+# Processed CSVs are tracked with Git LFS
+# (see .gitattributes)
 
 # Note: Generated graphs (*.png) are NOT ignored so you can display them on GitHub! If you want to ignore them, add *.png to this file.

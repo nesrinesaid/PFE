@@ -19,7 +19,8 @@ def identify_outliers_iqr(series):
 def main():
     print("STEP 4 - EXPLORATORY DATA ANALYSIS\n")
 
-    input_file = 'data_cleaned_enriched.csv'
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    input_file = os.path.join(project_root, 'data_cleaned_enriched.csv')
     if not os.path.exists(input_file):
         print(f"ERROR: {input_file} not found. Run step2_5_enrich_data.py first.")
         return
@@ -59,7 +60,7 @@ def main():
         plt.axvline(pd.to_datetime(f'{year}-01-01'), color='gray', linestyle='--', alpha=0.4)
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig('01_Ventes_Over_Time.png', dpi=300)
+    plt.savefig(os.path.join(project_root, '01_Ventes_Over_Time.png'), dpi=300)
     plt.close()
     print("  Saved: 01_Ventes_Over_Time.png")
 
@@ -76,7 +77,7 @@ def main():
                     (p.get_x() + p.get_width() / 2., p.get_height()),
                     ha='center', va='bottom', fontsize=9)
     plt.tight_layout()
-    plt.savefig('02_Ventes_Par_Annee.png', dpi=300)
+    plt.savefig(os.path.join(project_root, '02_Ventes_Par_Annee.png'), dpi=300)
     plt.close()
     print("  Saved: 02_Ventes_Par_Annee.png")
 
@@ -91,7 +92,7 @@ def main():
     plt.xlabel('Mois (1=Jan, 12=Déc)')
     plt.ylabel('Nombre moyen de véhicules')
     plt.tight_layout()
-    plt.savefig('03_Saisonnalite.png', dpi=300)
+    plt.savefig(os.path.join(project_root, '03_Saisonnalite.png'), dpi=300)
     plt.close()
     print(f"  Saved: 03_Saisonnalite.png  (peak: month {mois_fort}, low: month {mois_faible})")
 
@@ -109,7 +110,7 @@ def main():
                         (p.get_width(), p.get_y() + p.get_height() / 2),
                         va='center', ha='left', fontsize=9)
         plt.tight_layout()
-        plt.savefig('04_Top_Marques.png', dpi=300)
+        plt.savefig(os.path.join(project_root, '04_Top_Marques.png'), dpi=300)
         plt.close()
         print(f"  Saved: 04_Top_Marques.png  (top: {top_marques.index[0]})")
 
@@ -123,7 +124,7 @@ def main():
     plt.xlabel('Année')
     plt.ylabel('Ventes mensuelles')
     plt.tight_layout()
-    plt.savefig('05_BoxPlot_Outliers.png', dpi=300)
+    plt.savefig(os.path.join(project_root, '05_BoxPlot_Outliers.png'), dpi=300)
     plt.close()
     print(f"  Saved: 05_BoxPlot_Outliers.png  ({len(outliers)} outlier months)")
 
@@ -144,7 +145,7 @@ def main():
         plt.figtext(0.99, 0.01, f'Coverage: {nn:,} / {len(df):,} ({nn/len(df)*100:.1f}%)',
                     ha='right', fontsize=8, color='gray')
         plt.tight_layout()
-        plt.savefig('06_Ventes_Par_Segment.png', dpi=300)
+        plt.savefig(os.path.join(project_root, '06_Ventes_Par_Segment.png'), dpi=300)
         plt.close()
         print(f"  Saved: 06_Ventes_Par_Segment.png")
 
@@ -165,7 +166,7 @@ def main():
         plt.figtext(0.99, 0.01, f'Coverage: {nn:,} / {len(df):,} ({nn/len(df)*100:.1f}%)',
                     ha='right', fontsize=8, color='gray')
         plt.tight_layout()
-        plt.savefig('07_Ventes_Par_Sous_Segment.png', dpi=300)
+        plt.savefig(os.path.join(project_root, '07_Ventes_Par_Sous_Segment.png'), dpi=300)
         plt.close()
         print(f"  Saved: 07_Ventes_Par_Sous_Segment.png")
 
@@ -189,7 +190,7 @@ def main():
         plt.figtext(0.5, 0.01, f'Coverage: {nn:,} / {len(df):,} ({nn/len(df)*100:.1f}%)',
                     ha='center', fontsize=8, color='gray')
         plt.tight_layout()
-        plt.savefig('08_Repartition_Marche.png', dpi=300)
+        plt.savefig(os.path.join(project_root, '08_Repartition_Marche.png'), dpi=300)
         plt.close()
         print(f"  Saved: 08_Repartition_Marche.png")
 
@@ -212,7 +213,7 @@ def main():
         plt.figtext(0.5, 0.01, f'Coverage: {nn:,} / {len(df):,} ({nn/len(df)*100:.1f}%)',
                     ha='center', fontsize=8, color='gray')
         plt.tight_layout()
-        plt.savefig('09_Ventes_Par_Continent.png', dpi=300)
+        plt.savefig(os.path.join(project_root, '09_Ventes_Par_Continent.png'), dpi=300)
         plt.close()
         print(f"  Saved: 09_Ventes_Par_Continent.png")
 
@@ -235,7 +236,7 @@ def main():
         plt.figtext(0.99, 0.01, f'Coverage: {nn:,} / {len(df):,} ({nn/len(df)*100:.1f}%)',
                     ha='right', fontsize=8, color='gray')
         plt.tight_layout()
-        plt.savefig('10_Ventes_Par_Groupe.png', dpi=300)
+        plt.savefig(os.path.join(project_root, '10_Ventes_Par_Groupe.png'), dpi=300)
         plt.close()
         print(f"  Saved: 10_Ventes_Par_Groupe.png")
 
@@ -295,7 +296,7 @@ def main():
     print("EDA COMPLETE")
     print("=" * 60)
     print("\nVisualizations saved:")
-    for f in sorted(f for f in os.listdir('.') if f.endswith('.png') and f[0].isdigit()):
+    for f in sorted(f for f in os.listdir(project_root) if f.endswith('.png') and f[0].isdigit()):
         print(f"  - {f}")
 
     print("\nSTEP 4 COMPLETE -> Run step5_preparation.py next")

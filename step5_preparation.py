@@ -17,7 +17,8 @@ def safe_col(df, col_kwd):
 def main():
     print("STEP 5 - ML DATA PREPARATION\n")
 
-    input_file = 'data_cleaned_enriched.csv'
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    input_file = os.path.join(project_root, 'data_cleaned_enriched.csv')
     if not os.path.exists(input_file):
         print(f"ERROR: {input_file} not found. Run step2_5_enrich_data.py first.")
         return
@@ -72,6 +73,9 @@ def main():
     categorical_cols = [c for c in df_monthly.columns if '_dominante' in c]
     for col in categorical_cols:
         df_monthly[col] = df_monthly[col].ffill().bfill()
+
+    # Keep sales numeric as float so MA/outlier replacement can assign decimal values
+    df_monthly['Ventes'] = df_monthly['Ventes'].astype(float)
 
     print(f"  Missing values remaining: {df_monthly.isnull().sum().sum()}")
     print(f"  Total months after gap fill: {len(df_monthly)}")
@@ -164,16 +168,25 @@ def main():
 
     # ── PART 10: Export ───────────────────────────────────────────────────────
     print("\nPART 10: Saving files...")
-    df_model.to_csv('data_prepared_final.csv',      index=False)
-    data_train.to_csv('data_train.csv',             index=False)
-    data_val.to_csv('data_validation_2024.csv',     index=False)
-    data_test.to_csv('data_test_2025.csv',          index=False)
-    data_future.to_csv('data_future_2026.csv',      index=False)
+    output_files = [
+        'data_prepared_final.csv',
+        'data_train.csv',
+        'data_validation_2024.csv',
+        'data_test_2025.csv',
+        'data_future_2026.csv',
+    ]
+    for fname, data in [
+        ('data_prepared_final.csv', df_model),
+        ('data_train.csv', data_train),
+        ('data_validation_2024.csv', data_val),
+        ('data_test_2025.csv', data_test),
+        ('data_future_2026.csv', data_future),
+    ]:
+        out_path = os.path.join(project_root, fname)
+        data.to_csv(out_path, index=False)
 
-    files = ['data_prepared_final.csv', 'data_train.csv',
-             'data_validation_2024.csv', 'data_test_2025.csv', 'data_future_2026.csv']
-    for f in files:
-        size = os.path.getsize(f) / 1024
+    for f in output_files:
+        size = os.path.getsize(os.path.join(project_root, f)) / 1024
         print(f"  {f}: {size:.1f} KB")
 
     # ── PART 11: Summary visualisation ───────────────────────────────────────
@@ -215,7 +228,7 @@ def main():
 
     plt.suptitle('Step 5 — ML Preparation Summary', fontsize=14, fontweight='bold')
     plt.tight_layout()
-    plt.savefig('11_ML_Preparation_Summary.png', dpi=300)
+    plt.savefig(os.path.join(project_root, '11_ML_Preparation_Summary.png'), dpi=300)
     plt.close()
     print("  Saved: 11_ML_Preparation_Summary.png")
 
