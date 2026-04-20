@@ -37,7 +37,7 @@ GARBAGE_COLS = [
 ]
 
 FINAL_COLS = [
-    'ID','DATV','MARQUE','MODELE','GENRE','USAGE',
+    'ID','DATV','CD_TYP_CONS','MARQUE','MODELE','GENRE','USAGE',
     'CD_VILLE','VILLE','ENERGIE','PUISSANCE',
     'MARCHE_TYPE','SOCIETE','DATE_MEC',
     'YEAR','MONTH','YEAR_MONTH',
@@ -49,6 +49,77 @@ FINAL_COLS = [
 
 def norm(s):
     return s.astype(str).str.strip().str.upper()
+
+
+def _canonical(col):
+    """Normalize header text for tolerant matching across Excel variants."""
+    return str(col).strip().upper().replace(' ', '').replace('_', '')
+
+
+def read_titled_table(path, sheet_name, header0, out_cols, ncols=None):
+    """Read a table that may have title rows above the real header row."""
+    raw = pd.read_excel(path, sheet_name=sheet_name, header=None)
+    first = raw.iloc[:, 0].astype(str).str.strip().str.upper()
+    target = str(header0).strip().upper()
+    hi = next((i for i, v in first.items() if v == target), None)
+    if hi is None:
+        return pd.DataFrame(columns=out_cols)
+
+    width = ncols if ncols is not None else len(out_cols)
+    df = raw.iloc[hi + 1:, :width].copy()
+    df.columns = out_cols
+    return df
+
+
+def fix_segment_hierarchy(df_lookup, label):
+    """Ensure SEGMENT is broad class and SOUS_SEGMENT is detailed subtype."""
+    if 'SEGMENT' not in df_lookup.columns or 'SOUS_SEGMENT' not in df_lookup.columns:
+        return df_lookup
+
+    broad_prefixes = (
+        'SUV', 'HATCH', 'BERL', 'PICK', 'BREAK', 'MONO', 'CROSS',
+        'COUPE', 'CABRIO', 'ROAD', 'FOURG', 'VAN', 'BUS', 'CAMION',
+        'TRACT', 'QUAD', 'MOTO', 'AUTRE',
+    )
+
+    def broad_ratio(series):
+        s = (series.fillna('')
+                  .astype(str)
+                  .str.strip()
+                  .str.upper())
+        s = s[s != '']
+        if len(s) == 0:
+            return 0.0
+        return s.str.startswith(broad_prefixes).mean()
+
+    def detail_ratio(series):
+        s = (series.fillna('')
+                  .astype(str)
+                  .str.strip()
+                  .str.upper())
+        s = s[s != '']
+        if len(s) == 0:
+            return 0.0
+        # Typical detailed codes: SUV-A / HATCH-B / BERLINE-C, etc.
+        has_dash = s.str.contains(r'-', regex=True)
+        class_suffix = s.str.contains(r'\b[A-Z]+-[A-Z0-9]{1,3}$', regex=True)
+        return (has_dash | class_suffix).mean()
+
+    seg_broad = broad_ratio(df_lookup['SEGMENT'])
+    sous_broad = broad_ratio(df_lookup['SOUS_SEGMENT'])
+    seg_detail = detail_ratio(df_lookup['SEGMENT'])
+    sous_detail = detail_ratio(df_lookup['SOUS_SEGMENT'])
+
+    # If detailed patterns are mostly in SEGMENT and broad labels in SOUS_SEGMENT, reverse.
+    if (seg_detail > (sous_detail + 0.20) and sous_broad >= seg_broad) or (sous_broad > (seg_broad + 0.25)):
+        df_lookup = df_lookup.copy()
+        df_lookup['SEGMENT'], df_lookup['SOUS_SEGMENT'] = (
+            df_lookup['SOUS_SEGMENT'],
+            df_lookup['SEGMENT'],
+        )
+        print(f"  NOTE [{label}]: swapped SEGMENT/SOUS_SEGMENT to keep broad->detail hierarchy")
+
+    return df_lookup
 
 
 def safe_merge(df, right, on, new_cols, label, n):
@@ -106,10 +177,16 @@ def main():
     seg_file   = './data/segmentation.xlsx'
     new_file   = './data/Segment_par_Code_Type.xlsx'
 
-    for f in [input_file, seg_file, new_file]:
+    # Required inputs
+    for f in [input_file, seg_file]:
         if not os.path.exists(f):
             print(f"ERROR: {f} not found.")
             return
+
+    # Optional high-coverage lookup file: fallback to segmentation.xlsx CD_TYP_CONS when absent.
+    has_code_type_lookup = os.path.exists(new_file)
+    if not has_code_type_lookup:
+        print(f"WARNING: {new_file} not found. Will use CD_TYP_CONS sheet from segmentation.xlsx.")
 
     # ── 0. Load raw intermediate ──────────────────────────────────────────────
     print(f"Loading {input_file}...")
@@ -152,14 +229,69 @@ def main():
     print("\nReading lookup files...")
 
     # Master CD_TYP_CONS lookup from Segment_par_Code_Type.xlsx
-    print("  Building master CD_TYP_CONS lookup...")
-    df_master = build_master_lookup(new_file)
-    print(f"  Master lookup: {len(df_master):,} unique codes, "
-          f"SEGMENT {df_master['SEGMENT'].notna().sum()/len(df_master)*100:.1f}% within lookup")
+    if has_code_type_lookup:
+        print("  Building master CD_TYP_CONS lookup...")
+        df_master = build_master_lookup(new_file)
+        df_master = fix_segment_hierarchy(df_master, 'CD_TYP_CONS master')
+        print(f"  Master lookup: {len(df_master):,} unique codes, "
+              f"SEGMENT {df_master['SEGMENT'].notna().sum()/len(df_master)*100:.1f}% within lookup")
+    else:
+        df_master = read_titled_table(
+            seg_file,
+            sheet_name='CD_TYP_CONS',
+            header0='CD_TYP_CONS',
+            out_cols=['CD_TYP_CONS', 'MARQUE', 'MODELE', 'SEGMENT', 'SOUS_SEGMENT'],
+            ncols=5,
+        )
+        df_master = df_master.dropna(subset=['CD_TYP_CONS'])
+        df_master['CD_TYP_CONS'] = df_master['CD_TYP_CONS'].astype(str).str.strip()
+        df_master['CD_TYP_CONS_K'] = norm(df_master['CD_TYP_CONS'])
+        df_master['_has'] = df_master['SEGMENT'].notna().astype(int)
+        df_master = (df_master
+                     .sort_values('_has', ascending=False)
+                     .drop_duplicates(subset=['CD_TYP_CONS_K'], keep='first')
+                     .drop(columns=['_has'])
+                     .reset_index(drop=True))
+        df_master = fix_segment_hierarchy(df_master, 'segmentation.xlsx/CD_TYP_CONS')
+        if len(df_master):
+            print(f"  Master lookup (from segmentation.xlsx/CD_TYP_CONS): {len(df_master):,} unique codes, "
+                  f"SEGMENT {df_master['SEGMENT'].notna().sum()/len(df_master)*100:.1f}% within lookup")
+        else:
+            print("  Master lookup: CD_TYP_CONS sheet not usable, fallback MARQUE+MODELE only")
 
     # Segmentation fallback: MARQUE+MODELE → SEGMENT+SOUS_SEGMENT
-    df_seg_fb = pd.read_excel(seg_file, sheet_name='Segmentation', header=0).iloc[:, :4]
-    df_seg_fb.columns = ['MARQUE','MODELE','SEGMENT','SOUS_SEGMENT']
+    # Supports title rows above the actual table header in Excel.
+    raw_seg = pd.read_excel(seg_file, sheet_name='Segmentation', header=None)
+    first_col = raw_seg.iloc[:, 0].astype(str).str.strip().str.upper()
+    header_idx = next((i for i, v in first_col.items() if v == 'MARQUE'), None)
+
+    if header_idx is not None:
+        df_seg_fb = raw_seg.iloc[header_idx + 1:, :4].copy()
+        df_seg_fb.columns = ['MARQUE', 'MODELE', 'SEGMENT', 'SOUS_SEGMENT']
+    else:
+        # Fallback for files where row 1 is already a proper header row.
+        df_seg_fb = pd.read_excel(seg_file, sheet_name='Segmentation', header=0)
+        rename_map = {}
+        for c in df_seg_fb.columns:
+            k = _canonical(c)
+            if k == 'MARQUE':
+                rename_map[c] = 'MARQUE'
+            elif k == 'MODELE':
+                rename_map[c] = 'MODELE'
+            elif k == 'SEGMENT':
+                rename_map[c] = 'SEGMENT'
+            elif k in {'SEGMENT+', 'SOUSSEGMENT'}:
+                rename_map[c] = 'SOUS_SEGMENT'
+        df_seg_fb = df_seg_fb.rename(columns=rename_map)
+
+    seg_required = ['MARQUE', 'MODELE', 'SEGMENT', 'SOUS_SEGMENT']
+    seg_missing = [c for c in seg_required if c not in df_seg_fb.columns]
+    if seg_missing:
+        print(f"ERROR: Segmentation sheet missing columns: {seg_missing}")
+        return
+
+    df_seg_fb = df_seg_fb[seg_required].copy()
+    df_seg_fb = fix_segment_hierarchy(df_seg_fb, 'Segmentation fallback')
     df_seg_fb = df_seg_fb.dropna(subset=['MARQUE'])
     df_seg_fb['MK'] = norm(df_seg_fb['MARQUE'])
     df_seg_fb['ML'] = norm(df_seg_fb['MODELE'])
@@ -167,28 +299,42 @@ def main():
     print(f"  Segmentation fallback: {len(df_seg_fb):,} MARQUE+MODELE entries")
 
     # Groupe: MARQUE → GROUPE + DISTRIBUTEUR
-    df_grp = pd.read_excel(seg_file, sheet_name='Groupe', header=None)
-    df_grp.columns = ['MARQUE','GROUPE','DISTRIBUTEUR']
+    df_grp = read_titled_table(
+        seg_file,
+        sheet_name='Groupe',
+        header0='MARQUE',
+        out_cols=['MARQUE', 'GROUPE', 'DISTRIBUTEUR'],
+        ncols=3,
+    )
     df_grp = df_grp.dropna(subset=['MARQUE'])
     df_grp['MARQUE_K'] = norm(df_grp['MARQUE'])
     df_grp = df_grp.drop_duplicates(subset=['MARQUE_K'], keep='first')
     print(f"  Groupe: {len(df_grp):,} brands")
 
-    # Feuil3: MARQUE → PAYS_DORIGINE + CONTINENT
-    df_f3 = pd.read_excel(seg_file, sheet_name='Feuil3', header=0)
-    df_f3.columns = ['MARQUE','MARQUE_PLUS','PAYS_DORIGINE','CONTINENT']
-    df_f3 = df_f3[['MARQUE','PAYS_DORIGINE','CONTINENT']].copy()
+    # Origine: MARQUE → PAYS_DORIGINE + CONTINENT
+    df_f3 = read_titled_table(
+        seg_file,
+        sheet_name='Origine',
+        header0='MARQUE',
+        out_cols=['MARQUE', 'PAYS_DORIGINE', 'CONTINENT'],
+        ncols=3,
+    )
     df_f3['MARQUE_K'] = norm(df_f3['MARQUE'])
     df_f3 = df_f3.drop_duplicates(subset=['MARQUE_K'], keep='first')
-    print(f"  Feuil3: {len(df_f3):,} brands")
+    print(f"  Origine: {len(df_f3):,} brands")
 
-    # CD GENRE: GENRE text → MARCHE_TYPE
-    df_cdg = pd.read_excel(seg_file, sheet_name='CD GENRE', header=0)
-    df_cdg.columns = ['GENRE_LABEL','CD_GENRE_NUM','MARCHE_TYPE']
+    # CD_GENRE: GENRE text → MARCHE_TYPE
+    df_cdg = read_titled_table(
+        seg_file,
+        sheet_name='CD_GENRE',
+        header0='GENRE',
+        out_cols=['GENRE_LABEL', 'CD_GENRE_NUM', 'MARCHE_TYPE'],
+        ncols=3,
+    )
     df_cdg['GENRE_K'] = norm(df_cdg['GENRE_LABEL'].fillna(''))
     df_cdg = df_cdg.dropna(subset=['GENRE_LABEL'])
     df_cdg = df_cdg.drop_duplicates(subset=['GENRE_K'], keep='first')
-    print(f"  CD GENRE: {len(df_cdg):,} genre codes")
+    print(f"  CD_GENRE: {len(df_cdg):,} genre codes")
 
     # ── 5. Apply SEGMENT enrichment (two passes) ──────────────────────────────
     print("\nApplying enrichments...")
@@ -239,12 +385,30 @@ def main():
     df = df.drop(columns=['CD_TYP_CONS_K','MARQUE_K','MK','ML','GENRE_K'], errors='ignore')
 
     # ── 7. Fix data types ─────────────────────────────────────────────────────
-    str_cols = ['MARQUE','MODELE','GENRE','USAGE','VILLE','ENERGIE','MARCHE_TYPE',
+    str_cols = ['CD_TYP_CONS','MARQUE','MODELE','GENRE','USAGE','VILLE','ENERGIE','MARCHE_TYPE',
                 'SOCIETE','YEAR_MONTH','SEGMENT','SOUS_SEGMENT',
                 'PAYS_DORIGINE','CONTINENT','GROUPE','DISTRIBUTEUR']
     for col in str_cols:
         if col in df.columns:
             df[col] = df[col].replace({'nan': np.nan, 'NAN': np.nan, '': np.nan})
+
+    # Enforce strict known values for required taxonomy/identity columns.
+    required_cols = ['CD_TYP_CONS', 'MARQUE', 'MODELE', 'SEGMENT', 'SOUS_SEGMENT']
+    invalid_tokens = {'', 'NAN', 'NONE', 'NULL', '0', '0.0', 'UNKNOWN'}
+    for col in required_cols:
+        if col in df.columns:
+            s = df[col].astype(str).str.strip()
+            bad = s.str.upper().isin(invalid_tokens)
+            df.loc[bad, col] = np.nan
+
+    # Keep only rows that have known non-placeholder values in all required cols.
+    required_present = [c for c in required_cols if c in df.columns]
+    before_strict = len(df)
+    df = df.dropna(subset=required_present).copy()
+    dropped = before_strict - len(df)
+    print(f"  Strict quality filter (required known values): kept {len(df):,} / {before_strict:,} rows")
+    if dropped:
+        print(f"    Dropped rows: {dropped:,} ({dropped/before_strict*100:.1f}%)")
 
     for col in ['PUISSANCE','CD_VILLE']:
         if col in df.columns:
