@@ -29,21 +29,64 @@ def main():
     df = pd.read_csv(input_file, parse_dates=['DATV'])
     df = df.rename(columns={'DATV': 'DAT_V'})
 
+    # Normalize IM_RI to integer labels for robust filtering.
+    if 'IM_RI' not in df.columns:
+        print("ERROR: IM_RI column not found in data_cleaned_enriched.csv")
+        return
+    df['IM_RI'] = pd.to_numeric(df['IM_RI'], errors='coerce').round().astype('Int64')
+
     if 'YEAR_MONTH' not in df.columns:
         df['YEAR_MONTH'] = df['YEAR'].astype(str) + '-' + df['MONTH'].astype(str).str.zfill(2)
 
     print(f"  Shape: {df.shape}")
 
+    # Comparison scope (all records) and analysis scope (new vehicles only)
+    df_neuf = df[df['IM_RI'] == 10].copy()
+    df_occ = df[df['IM_RI'] == 20].copy()
+    if df_neuf.empty:
+        print("ERROR: No records with IM_RI=10 (ventes neufs).")
+        return
+
+    print(f"  Ventes neufs (IM_RI=10)     : {len(df_neuf):,}")
+    print(f"  Ventes d'occasion (IM_RI=20): {len(df_occ):,}")
+
     # ── PART 1: General statistics ────────────────────────────────────────────
     print("\n--- General Statistics ---")
-    print(f"  Total vehicles : {len(df):,}")
-    print(f"  Date range     : {df['DAT_V'].min().date()} -> {df['DAT_V'].max().date()}")
-    print(f"  Distinct years : {sorted(df['YEAR'].unique())}")
-    print(f"  Unique brands  : {df['MARQUE'].nunique()}")
+    print(f"  Total vehicles (all IM_RI) : {len(df):,}")
+    print(f"  Vehicles analyzed (neufs)  : {len(df_neuf):,}")
+    print(f"  Date range (neufs)         : {df_neuf['DAT_V'].min().date()} -> {df_neuf['DAT_V'].max().date()}")
+    print(f"  Distinct years (neufs)     : {sorted(df_neuf['YEAR'].unique())}")
+    print(f"  Unique brands (neufs)      : {df_neuf['MARQUE'].nunique()}")
 
-    # ── PART 2: Monthly sales metric ─────────────────────────────────────────
-    print("\nBuilding monthly sales metric...")
-    ventes = df.groupby('YEAR_MONTH').size().reset_index(name='Ventes')
+    # ── GRAPH 0: Neuf vs Occasion over time ──────────────────────────────────
+    print("\nBuilding monthly sales metrics...")
+    ventes_cmp = (df.groupby(['YEAR_MONTH', 'IM_RI'])
+                    .size()
+                    .reset_index(name='Ventes'))
+    ventes_cmp['YEAR_MONTH'] = pd.to_datetime(ventes_cmp['YEAR_MONTH'], errors='coerce')
+    ventes_cmp = ventes_cmp.dropna(subset=['YEAR_MONTH'])
+    ventes_pivot = (ventes_cmp.pivot_table(index='YEAR_MONTH', columns='IM_RI', values='Ventes', fill_value=0)
+                              .sort_index())
+
+    plt.figure(figsize=(14, 6))
+    if 10 in ventes_pivot.columns:
+        plt.plot(ventes_pivot.index, ventes_pivot[10], marker='o', linewidth=2, markersize=3,
+                 label='Ventes Neufs (IM_RI=10)', color='#1976D2')
+    if 20 in ventes_pivot.columns:
+        plt.plot(ventes_pivot.index, ventes_pivot[20], marker='o', linewidth=2, markersize=3,
+                 label="Ventes d'occasion (IM_RI=20)", color='#EF6C00')
+    plt.title("Ventes Neufs vs Ventes d'Occasion dans le Temps", fontsize=14, fontweight='bold')
+    plt.xlabel('Date')
+    plt.ylabel('Nombre de véhicules')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(os.path.join(project_root, '00_Ventes_Neufs_vs_Occasion.png'), dpi=300)
+    plt.close()
+    print("  Saved: 00_Ventes_Neufs_vs_Occasion.png")
+
+    # ── PART 2: Monthly sales metric (neufs only) ────────────────────────────
+    ventes = df_neuf.groupby('YEAR_MONTH').size().reset_index(name='Ventes')
     ventes['YEAR_MONTH'] = pd.to_datetime(ventes['YEAR_MONTH'], errors='coerce')
     ventes['YEAR']  = ventes['YEAR_MONTH'].dt.year
     ventes['MONTH'] = ventes['YEAR_MONTH'].dt.month
@@ -53,7 +96,7 @@ def main():
     plt.figure(figsize=(14, 6))
     plt.plot(ventes['YEAR_MONTH'], ventes['Ventes'],
              marker='o', linestyle='-', color='steelblue', linewidth=2, markersize=4)
-    plt.title('Ventes de véhicules dans le temps', fontsize=14, fontweight='bold')
+    plt.title('Ventes de Véhicules Neufs dans le Temps (IM_RI=10)', fontsize=14, fontweight='bold')
     plt.xlabel('Date')
     plt.ylabel('Nombre de véhicules')
     for year in ventes['YEAR_MONTH'].dt.year.unique():
@@ -66,9 +109,9 @@ def main():
 
     # ── GRAPH 2: Sales by year ────────────────────────────────────────────────
     plt.figure(figsize=(10, 6))
-    ventes_annee = df.groupby('YEAR').size()
+    ventes_annee = df_neuf.groupby('YEAR').size()
     ax = ventes_annee.plot(kind='bar', color='steelblue', edgecolor='navy')
-    plt.title('Ventes par Année', fontsize=14, fontweight='bold')
+    plt.title('Ventes Neufs par Année (IM_RI=10)', fontsize=14, fontweight='bold')
     plt.xlabel('Année')
     plt.ylabel('Total de véhicules')
     plt.xticks(rotation=0)
@@ -97,11 +140,11 @@ def main():
     print(f"  Saved: 03_Saisonnalite.png  (peak: month {mois_fort}, low: month {mois_faible})")
 
     # ── GRAPH 4: Top 10 brands ────────────────────────────────────────────────
-    if 'MARQUE' in df.columns:
-        top_marques = df['MARQUE'].value_counts().head(10)
+    if 'MARQUE' in df_neuf.columns:
+        top_marques = df_neuf['MARQUE'].value_counts().head(10)
         plt.figure(figsize=(10, 6))
         ax = top_marques.plot(kind='barh', color='coral', edgecolor='darkred')
-        plt.title('Top 10 Marques par Nombre de Véhicules', fontsize=14, fontweight='bold')
+        plt.title('Top 10 Marques (Ventes Neufs, IM_RI=10)', fontsize=14, fontweight='bold')
         plt.xlabel('Nombre de véhicules')
         plt.ylabel('Marque')
         plt.gca().invert_yaxis()
@@ -129,11 +172,11 @@ def main():
     print(f"  Saved: 05_BoxPlot_Outliers.png  ({len(outliers)} outlier months)")
 
     # ── GRAPH 6: Sales by SEGMENT ─────────────────────────────────────────────
-    if 'SEGMENT' in df.columns and df['SEGMENT'].notna().sum() > 0:
-        seg_counts = df['SEGMENT'].value_counts().head(12)
+    if 'SEGMENT' in df_neuf.columns and df_neuf['SEGMENT'].notna().sum() > 0:
+        seg_counts = df_neuf['SEGMENT'].value_counts().head(12)
         plt.figure(figsize=(12, 6))
         ax = seg_counts.plot(kind='barh', color='teal', edgecolor='darkcyan')
-        plt.title('Ventes par Segment de Véhicule', fontsize=14, fontweight='bold')
+        plt.title('Ventes par  sous_segment de Véhicule', fontsize=14, fontweight='bold')
         plt.xlabel('Nombre de véhicules')
         plt.ylabel('Segment')
         plt.gca().invert_yaxis()
@@ -141,8 +184,8 @@ def main():
             ax.annotate(f"{int(p.get_width()):,}",
                         (p.get_width(), p.get_y() + p.get_height() / 2),
                         va='center', ha='left', fontsize=8)
-        nn = df['SEGMENT'].notna().sum()
-        plt.figtext(0.99, 0.01, f'Coverage: {nn:,} / {len(df):,} ({nn/len(df)*100:.1f}%)',
+        nn = df_neuf['SEGMENT'].notna().sum()
+        plt.figtext(0.99, 0.01, f'Coverage: {nn:,} / {len(df_neuf):,} ({nn/len(df_neuf)*100:.1f}%)',
                     ha='right', fontsize=8, color='gray')
         plt.tight_layout()
         plt.savefig(os.path.join(project_root, '06_Ventes_Par_Segment.png'), dpi=300)
@@ -150,8 +193,8 @@ def main():
         print(f"  Saved: 06_Ventes_Par_Segment.png")
 
     # ── GRAPH 7: Sales by SOUS_SEGMENT ───────────────────────────────────────
-    if 'SOUS_SEGMENT' in df.columns and df['SOUS_SEGMENT'].notna().sum() > 0:
-        sous_counts = df['SOUS_SEGMENT'].value_counts().head(12)
+    if 'SOUS_SEGMENT' in df_neuf.columns and df_neuf['SOUS_SEGMENT'].notna().sum() > 0:
+        sous_counts = df_neuf['SOUS_SEGMENT'].value_counts().head(12)
         plt.figure(figsize=(12, 6))
         ax = sous_counts.plot(kind='barh', color='mediumslateblue', edgecolor='darkslateblue')
         plt.title('Ventes par Sous-Segment de Véhicule', fontsize=14, fontweight='bold')
@@ -162,17 +205,18 @@ def main():
             ax.annotate(f"{int(p.get_width()):,}",
                         (p.get_width(), p.get_y() + p.get_height() / 2),
                         va='center', ha='left', fontsize=8)
-        nn = df['SOUS_SEGMENT'].notna().sum()
-        plt.figtext(0.99, 0.01, f'Coverage: {nn:,} / {len(df):,} ({nn/len(df)*100:.1f}%)',
+        nn = df_neuf['SOUS_SEGMENT'].notna().sum()
+        plt.figtext(0.99, 0.01, f'Coverage: {nn:,} / {len(df_neuf):,} ({nn/len(df_neuf)*100:.1f}%)',
                     ha='right', fontsize=8, color='gray')
         plt.tight_layout()
         plt.savefig(os.path.join(project_root, '07_Ventes_Par_Sous_Segment.png'), dpi=300)
         plt.close()
         print(f"  Saved: 07_Ventes_Par_Sous_Segment.png")
 
-    # ── GRAPH 8: Sales by MARCHE_TYPE (VP / VU / Autre) ──────────────────────
-    if 'MARCHE_TYPE' in df.columns and df['MARCHE_TYPE'].notna().sum() > 0:
-        marche_counts = df['MARCHE_TYPE'].value_counts()
+    # ── GRAPH 8: Sales by Marché (VP / VU / Autre) ───────────────────────────
+    marche_col = 'Marché' if 'Marché' in df_neuf.columns else ('MARCHE_TYPE' if 'MARCHE_TYPE' in df_neuf.columns else None)
+    if marche_col and df_neuf[marche_col].notna().sum() > 0:
+        marche_counts = df_neuf[marche_col].value_counts()
         plt.figure(figsize=(8, 6))
         colors = ['#2196F3', '#FF9800', '#4CAF50'][:len(marche_counts)]
         wedges, texts, autotexts = plt.pie(
@@ -184,10 +228,10 @@ def main():
         )
         for t in autotexts:
             t.set_fontsize(10)
-        plt.title('Répartition par Type de Marché (VP / VU / Autre)',
+        plt.title('Répartition par Type de Marché (Neufs, IM_RI=10)',
                   fontsize=14, fontweight='bold')
-        nn = df['MARCHE_TYPE'].notna().sum()
-        plt.figtext(0.5, 0.01, f'Coverage: {nn:,} / {len(df):,} ({nn/len(df)*100:.1f}%)',
+        nn = df_neuf[marche_col].notna().sum()
+        plt.figtext(0.5, 0.01, f'Coverage: {nn:,} / {len(df_neuf):,} ({nn/len(df_neuf)*100:.1f}%)',
                     ha='center', fontsize=8, color='gray')
         plt.tight_layout()
         plt.savefig(os.path.join(project_root, '08_Repartition_Marche.png'), dpi=300)
@@ -195,8 +239,8 @@ def main():
         print(f"  Saved: 08_Repartition_Marche.png")
 
     # ── GRAPH 9: Sales by CONTINENT ───────────────────────────────────────────
-    if 'CONTINENT' in df.columns and df['CONTINENT'].notna().sum() > 0:
-        cont_counts = df['CONTINENT'].value_counts()
+    if 'CONTINENT' in df_neuf.columns and df_neuf['CONTINENT'].notna().sum() > 0:
+        cont_counts = df_neuf['CONTINENT'].value_counts()
         plt.figure(figsize=(8, 6))
         colors = ['#3498DB', '#E74C3C', '#2ECC71', '#F39C12'][:len(cont_counts)]
         wedges, texts, autotexts = plt.pie(
@@ -208,9 +252,9 @@ def main():
         )
         for t in autotexts:
             t.set_fontsize(10)
-        plt.title('Ventes par Continent d\'Origine', fontsize=14, fontweight='bold')
-        nn = df['CONTINENT'].notna().sum()
-        plt.figtext(0.5, 0.01, f'Coverage: {nn:,} / {len(df):,} ({nn/len(df)*100:.1f}%)',
+        plt.title('Ventes Neufs par Continent d\'Origine', fontsize=14, fontweight='bold')
+        nn = df_neuf['CONTINENT'].notna().sum()
+        plt.figtext(0.5, 0.01, f'Coverage: {nn:,} / {len(df_neuf):,} ({nn/len(df_neuf)*100:.1f}%)',
                     ha='center', fontsize=8, color='gray')
         plt.tight_layout()
         plt.savefig(os.path.join(project_root, '09_Ventes_Par_Continent.png'), dpi=300)
@@ -218,13 +262,13 @@ def main():
         print(f"  Saved: 09_Ventes_Par_Continent.png")
 
     # ── GRAPH 10: Sales by GROUPE (distributor group) ─────────────────────────
-    if 'GROUPE' in df.columns and df['GROUPE'].notna().sum() > 0:
-        groupe_counts = df['GROUPE'].value_counts().head(10)
+    if 'GROUPE' in df_neuf.columns and df_neuf['GROUPE'].notna().sum() > 0:
+        groupe_counts = df_neuf['GROUPE'].value_counts().head(10)
         # Shorten long group names for readability
         groupe_counts.index = groupe_counts.index.str.replace(r'\s*\(.*\)', '', regex=True).str.strip()
         plt.figure(figsize=(12, 7))
         ax = groupe_counts.plot(kind='barh', color='darkorange', edgecolor='saddlebrown')
-        plt.title('Top 10 Groupes Distributeurs par Volume', fontsize=14, fontweight='bold')
+        plt.title('Top 10 Groupes Distributeurs (Neufs, IM_RI=10)', fontsize=14, fontweight='bold')
         plt.xlabel('Nombre de véhicules')
         plt.ylabel('Groupe')
         plt.gca().invert_yaxis()
@@ -232,13 +276,45 @@ def main():
             ax.annotate(f"{int(p.get_width()):,}",
                         (p.get_width(), p.get_y() + p.get_height() / 2),
                         va='center', ha='left', fontsize=8)
-        nn = df['GROUPE'].notna().sum()
-        plt.figtext(0.99, 0.01, f'Coverage: {nn:,} / {len(df):,} ({nn/len(df)*100:.1f}%)',
+        nn = df_neuf['GROUPE'].notna().sum()
+        plt.figtext(0.99, 0.01, f'Coverage: {nn:,} / {len(df_neuf):,} ({nn/len(df_neuf)*100:.1f}%)',
                     ha='right', fontsize=8, color='gray')
         plt.tight_layout()
         plt.savefig(os.path.join(project_root, '10_Ventes_Par_Groupe.png'), dpi=300)
         plt.close()
         print(f"  Saved: 10_Ventes_Par_Groupe.png")
+
+    # ── GRAPH 11: Evolution des marques ARTES (Renault, Nissan, Dacia) ─────
+    if 'MARQUE' in df_neuf.columns:
+        artes_marques = ['RENAULT', 'NISSAN', 'DACIA']
+        df_artes = df_neuf.copy()
+        df_artes['MARQUE_UP'] = df_artes['MARQUE'].astype(str).str.strip().str.upper()
+        df_artes = df_artes[df_artes['MARQUE_UP'].isin(artes_marques)]
+
+        if not df_artes.empty:
+            artes_monthly = (df_artes.groupby(['YEAR_MONTH', 'MARQUE_UP'])
+                                     .size()
+                                     .reset_index(name='Ventes'))
+            artes_monthly['YEAR_MONTH'] = pd.to_datetime(artes_monthly['YEAR_MONTH'], errors='coerce')
+            artes_monthly = artes_monthly.dropna(subset=['YEAR_MONTH']).sort_values('YEAR_MONTH')
+
+            plt.figure(figsize=(14, 6))
+            for brand, color in [('RENAULT', '#1f77b4'), ('NISSAN', '#ff7f0e'), ('DACIA', '#2ca02c')]:
+                b = artes_monthly[artes_monthly['MARQUE_UP'] == brand]
+                if not b.empty:
+                    plt.plot(b['YEAR_MONTH'], b['Ventes'], marker='o', linewidth=2, markersize=3,
+                             label=brand.title(), color=color)
+
+            plt.title('Evolution des Marques ARTES (Renault, Nissan, Dacia) - Ventes Neufs',
+                      fontsize=14, fontweight='bold')
+            plt.xlabel('Date')
+            plt.ylabel('Nombre de véhicules neufs')
+            plt.legend()
+            plt.grid(True, alpha=0.3)
+            plt.tight_layout()
+            plt.savefig(os.path.join(project_root, '11_Evolution_Marques_ARTES.png'), dpi=300)
+            plt.close()
+            print("  Saved: 11_Evolution_Marques_ARTES.png")
 
     # ── PART 3: Missing months check ─────────────────────────────────────────
     print("\n--- Data Quality Checks ---")
@@ -256,7 +332,7 @@ def main():
         print(f"  OK: No missing months in data")
 
     missing_years = [y for y in [2019, 2020, 2021, 2022, 2023, 2024, 2025]
-                     if y not in df['YEAR'].unique()]
+                     if y not in df_neuf['YEAR'].unique()]
     if missing_years:
         print(f"  WARNING: Missing years: {missing_years} -> request from ARTES")
 
@@ -265,12 +341,12 @@ def main():
     print("KEY INSIGHTS")
     print("=" * 60)
     print(f"\n  Market:")
-    if 'MARQUE' in df.columns:
-        top = df['MARQUE'].value_counts()
-        print(f"    Dominant brand    : {top.index[0]} ({top.values[0]/len(df)*100:.1f}% market share)")
-        print(f"    Top 3 brands      : {top.values[:3].sum()/len(df)*100:.1f}% of total market")
+    if 'MARQUE' in df_neuf.columns:
+        top = df_neuf['MARQUE'].value_counts()
+        print(f"    Dominant brand    : {top.index[0]} ({top.values[0]/len(df_neuf)*100:.1f}% market share among neufs)")
+        print(f"    Top 3 brands      : {top.values[:3].sum()/len(df_neuf)*100:.1f}% of ventes neufs")
 
-    yearly = df.groupby('YEAR').size()
+    yearly = df_neuf.groupby('YEAR').size()
     if len(yearly) >= 2:
         trend = (yearly.iloc[-1] - yearly.iloc[0]) / yearly.iloc[0] * 100
         print(f"\n  Trend ({yearly.index[0]}-{yearly.index[-1]}): {trend:+.1f}%")
@@ -287,10 +363,10 @@ def main():
     print(f"    Outlier months: {len(outliers)}")
 
     print(f"\n  Enrichment coverage:")
-    for col in ['SEGMENT', 'SOUS_SEGMENT', 'MARCHE_TYPE', 'GROUPE', 'PAYS_DORIGINE', 'CONTINENT']:
-        if col in df.columns:
-            nn = df[col].notna().sum()
-            print(f"    {col:20s}: {nn/len(df)*100:.1f}%")
+    for col in ['SEGMENT', 'SOUS_SEGMENT', 'Marché', 'MARCHE_TYPE', 'GROUPE', 'PAYS_DORIGINE', 'CONTINENT']:
+        if col in df_neuf.columns:
+            nn = df_neuf[col].notna().sum()
+            print(f"    {col:20s}: {nn/len(df_neuf)*100:.1f}%")
 
     print("\n" + "=" * 60)
     print("EDA COMPLETE")

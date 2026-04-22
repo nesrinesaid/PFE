@@ -12,6 +12,12 @@ sns.set_theme(style="whitegrid")
 
 
 def safe_col(df, col_kwd):
+    aliases = {
+        'MARCHE_TYPE': ['Marché', 'MARCHE_TYPE', 'MARCH'],
+    }
+    for candidate in aliases.get(col_kwd, [col_kwd]):
+        if candidate in df.columns:
+            return candidate
     return next((c for c in df.columns if col_kwd in c), None)
 
 

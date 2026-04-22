@@ -20,7 +20,7 @@ warnings.filterwarnings('ignore')
 # OTHER ENRICHMENTS (from segmentation.xlsx):
 #   Groupe sheet:  MARQUE → GROUPE + DISTRIBUTEUR
 #   Feuil3 sheet:  MARQUE → PAYS_DORIGINE + CONTINENT
-#   CD GENRE sheet: GENRE text → MARCHE_TYPE (VP / VU / Autre)
+#   MARCH from the raw data → Marché (source field, preserved as-is)
 # ─────────────────────────────────────────────────────────────────────────────
 
 GARBAGE_COLS = [
@@ -33,13 +33,13 @@ GARBAGE_COLS = [
     'MODLE_POPULAIRE','MODLES','MOIS',
     # Pre-existing enrichment cols from pivot tables — replaced by proper joins
     'SEGMENT_','SEGMENT','GROUPE','PAYS_DORIGINE','CONTINENT',
-    'MODELE','SOCIT','MARCH','POSITIONS','GPS_COORDS',
+    'MODELE','SOCIT','POSITIONS','GPS_COORDS',
 ]
 
 FINAL_COLS = [
-    'ID','DATV','CD_TYP_CONS','MARQUE','MODELE','GENRE','USAGE',
+    'ID','DATV','CD_TYP_CONS','IM_RI','MARQUE','MODELE','GENRE','USAGE',
     'CD_VILLE','VILLE','ENERGIE','PUISSANCE',
-    'MARCHE_TYPE','SOCIETE','DATE_MEC',
+    'Marché','SOCIETE','DATE_MEC',
     'YEAR','MONTH','YEAR_MONTH',
     'SEGMENT','SOUS_SEGMENT',
     'PAYS_DORIGINE','CONTINENT',
@@ -49,6 +49,11 @@ FINAL_COLS = [
 
 def norm(s):
     return s.astype(str).str.strip().str.upper()
+
+
+def norm_code(s):
+    text = s.astype(str).str.strip().str.upper()
+    return text.str.replace(r'\.0+$', '', regex=True)
 
 
 def _canonical(col):
@@ -69,6 +74,25 @@ def read_titled_table(path, sheet_name, header0, out_cols, ncols=None):
     df = raw.iloc[hi + 1:, :width].copy()
     df.columns = out_cols
     return df
+
+
+def build_marche_lookup(seg_file):
+    """Build CD_GENRE -> Marché lookup from the segmentation workbook."""
+    df_cdg = read_titled_table(
+        seg_file,
+        sheet_name='CD_GENRE',
+        header0='GENRE',
+        out_cols=['GENRE_LABEL', 'CD_GENRE_NUM', 'MARCH_TYPE'],
+        ncols=3,
+    )
+    if df_cdg.empty:
+        return df_cdg
+
+    df_cdg = df_cdg.dropna(subset=['CD_GENRE_NUM'])
+    df_cdg['CD_GENRE_K'] = norm_code(df_cdg['CD_GENRE_NUM'])
+    df_cdg = df_cdg.drop_duplicates(subset=['CD_GENRE_K'], keep='first')
+    print(f"  CD_GENRE lookup: {len(df_cdg):,} codes")
+    return df_cdg
 
 
 def fix_segment_hierarchy(df_lookup, label):
@@ -193,6 +217,9 @@ def main():
     df = pd.read_csv(input_file, low_memory=False)
     print(f"  Raw shape: {df.shape}")
 
+    print("\nReading lookup files...")
+    df_cdg = build_marche_lookup(seg_file)
+
     # ── 1. Drop all garbage / pivot-table columns ─────────────────────────────
     to_drop = [c for c in GARBAGE_COLS if c in df.columns]
     to_drop += [c for c in df.columns if c.startswith('UNNAMED_')]
@@ -211,6 +238,27 @@ def main():
     # SOCIETE and DATE_MEC
     df = df.rename(columns={'SOCIT': 'SOCIETE', 'DMC': 'DATE_MEC'}, errors='ignore')
 
+    # Preserve the source Marché field and expose it under the canonical output name.
+    if 'MARCH' in df.columns:
+        df['Marché'] = df['MARCH']
+    else:
+        df['Marché'] = np.nan
+
+    # Use CD_GENRE as a fallback when the source Marché is missing.
+    df['CD_GENRE_K'] = norm_code(df['CD_GENRE'].fillna('')) if 'CD_GENRE' in df.columns else ''
+    if not df_cdg.empty and 'CD_GENRE' in df.columns:
+        df = safe_merge(df, df_cdg[['CD_GENRE_K', 'MARCH_TYPE']], 'CD_GENRE_K', ['MARCH_TYPE'], 'CD_GENRE Marché', len(df))
+        df['Marché'] = df['Marché'].fillna(df['MARCH_TYPE'])
+
+    # Final Marché fallback to avoid empty values in downstream yearly outputs.
+    if 'USAGE' in df.columns:
+        usage_u = df['USAGE'].astype(str).str.upper()
+        vp_mask = df['Marché'].isna() & usage_u.str.contains('PARTICUL', na=False)
+        vu_mask = df['Marché'].isna() & usage_u.str.contains('UTILIT|CAMION|REMORQ|FOURG', na=False)
+        df.loc[vp_mask, 'Marché'] = 'Marché VP'
+        df.loc[vu_mask, 'Marché'] = 'Marché VU'
+    df['Marché'] = df['Marché'].fillna('Marché Autre')
+
     # Date types
     df['DATV'] = pd.to_datetime(df['DATV'], errors='coerce')
     if 'DATE_MEC' in df.columns:
@@ -226,7 +274,6 @@ def main():
     print(f"  Working shape: {df.shape}")
 
     # ── 4. Read lookup sheets ─────────────────────────────────────────────────
-    print("\nReading lookup files...")
 
     # Master CD_TYP_CONS lookup from Segment_par_Code_Type.xlsx
     if has_code_type_lookup:
@@ -323,19 +370,6 @@ def main():
     df_f3 = df_f3.drop_duplicates(subset=['MARQUE_K'], keep='first')
     print(f"  Origine: {len(df_f3):,} brands")
 
-    # CD_GENRE: GENRE text → MARCHE_TYPE
-    df_cdg = read_titled_table(
-        seg_file,
-        sheet_name='CD_GENRE',
-        header0='GENRE',
-        out_cols=['GENRE_LABEL', 'CD_GENRE_NUM', 'MARCHE_TYPE'],
-        ncols=3,
-    )
-    df_cdg['GENRE_K'] = norm(df_cdg['GENRE_LABEL'].fillna(''))
-    df_cdg = df_cdg.dropna(subset=['GENRE_LABEL'])
-    df_cdg = df_cdg.drop_duplicates(subset=['GENRE_K'], keep='first')
-    print(f"  CD_GENRE: {len(df_cdg):,} genre codes")
-
     # ── 5. Apply SEGMENT enrichment (two passes) ──────────────────────────────
     print("\nApplying enrichments...")
 
@@ -366,6 +400,48 @@ def main():
     # GROUPE + DISTRIBUTEUR
     df = safe_merge(df, df_grp[['MARQUE_K','GROUPE','DISTRIBUTEUR']],
                     'MARQUE_K', ['GROUPE','DISTRIBUTEUR'], 'Groupe', n)
+
+    # Replace generic GROUPE='Divers' with more specific assignments.
+    if 'GROUPE' in df.columns:
+        grp_norm = df['GROUPE'].astype(str).str.strip().str.upper()
+        divers_mask = grp_norm.isin({'DIVERS', 'DIVER', 'DIVERS.'})
+
+        # 1) Brand-level map from already specific groups.
+        specific_mask = (~divers_mask) & df['GROUPE'].notna()
+        if specific_mask.any():
+            marque_grp_map = (df.loc[specific_mask, ['MARQUE_K', 'GROUPE']]
+                                 .dropna(subset=['MARQUE_K', 'GROUPE'])
+                                 .groupby('MARQUE_K')['GROUPE']
+                                 .agg(lambda x: x.mode().iloc[0]))
+            fill_by_marque = divers_mask & df['MARQUE_K'].isin(marque_grp_map.index)
+            if fill_by_marque.any():
+                df.loc[fill_by_marque, 'GROUPE'] = df.loc[fill_by_marque, 'MARQUE_K'].map(marque_grp_map)
+
+        # 2) Distributor-level map for remaining generic rows.
+        grp_norm = df['GROUPE'].astype(str).str.strip().str.upper()
+        divers_mask = grp_norm.isin({'DIVERS', 'DIVER', 'DIVERS.'})
+        specific_mask = (~divers_mask) & df['GROUPE'].notna() & df['DISTRIBUTEUR'].notna()
+        if specific_mask.any():
+            dist_grp_map = (df.loc[specific_mask, ['DISTRIBUTEUR', 'GROUPE']]
+                              .groupby('DISTRIBUTEUR')['GROUPE']
+                              .agg(lambda x: x.mode().iloc[0]))
+            fill_by_dist = divers_mask & df['DISTRIBUTEUR'].isin(dist_grp_map.index)
+            if fill_by_dist.any():
+                df.loc[fill_by_dist, 'GROUPE'] = df.loc[fill_by_dist, 'DISTRIBUTEUR'].map(dist_grp_map)
+
+        # 3) Final deterministic fallback: make group explicit from MARQUE.
+        grp_norm = df['GROUPE'].astype(str).str.strip().str.upper()
+        divers_mask = grp_norm.isin({'DIVERS', 'DIVER', 'DIVERS.'}) | df['GROUPE'].isna()
+        if divers_mask.any():
+            marque_label = (df.loc[divers_mask, 'MARQUE']
+                              .astype(str)
+                              .str.strip()
+                              .str.upper()
+                              .str.replace(r'\s+', '_', regex=True)
+                              .str.replace(r'[^A-Z0-9_]', '', regex=True))
+            marque_label = marque_label.replace('', 'AUTRE')
+            df.loc[divers_mask, 'GROUPE'] = 'GROUPE_' + marque_label
+
     nn = df['GROUPE'].notna().sum()
     print(f"  GROUPE:                      {nn:,} ({nn/n*100:.1f}%)")
 
@@ -375,40 +451,77 @@ def main():
     nn = df['PAYS_DORIGINE'].notna().sum()
     print(f"  PAYS_DORIGINE:               {nn:,} ({nn/n*100:.1f}%)")
 
-    # MARCHE_TYPE
-    df = safe_merge(df, df_cdg[['GENRE_K','MARCHE_TYPE']],
-                    'GENRE_K', ['MARCHE_TYPE'], 'CD GENRE', n)
-    nn = df['MARCHE_TYPE'].notna().sum()
-    print(f"  MARCHE_TYPE:                 {nn:,} ({nn/n*100:.1f}%)")
+    # Marché comes directly from the source data (MARCH), not a lookup join.
+    nn = df['MARCHE_TYPE'].notna().sum() if 'MARCHE_TYPE' in df.columns else 0
+    print(f"  Marché:                     {nn:,} ({nn/n*100:.1f}%)")
 
     # ── 6. Clean up helper columns ────────────────────────────────────────────
-    df = df.drop(columns=['CD_TYP_CONS_K','MARQUE_K','MK','ML','GENRE_K'], errors='ignore')
+    df = df.drop(columns=['CD_TYP_CONS_K','MARQUE_K','MK','ML','GENRE_K','CD_GENRE_K','MARCH_TYPE'], errors='ignore')
 
     # ── 7. Fix data types ─────────────────────────────────────────────────────
-    str_cols = ['CD_TYP_CONS','MARQUE','MODELE','GENRE','USAGE','VILLE','ENERGIE','MARCHE_TYPE',
+    str_cols = ['CD_TYP_CONS','MARQUE','MODELE','GENRE','USAGE','VILLE','ENERGIE','MARCHE_TYPE','Marché',
                 'SOCIETE','YEAR_MONTH','SEGMENT','SOUS_SEGMENT',
                 'PAYS_DORIGINE','CONTINENT','GROUPE','DISTRIBUTEUR']
     for col in str_cols:
         if col in df.columns:
             df[col] = df[col].replace({'nan': np.nan, 'NAN': np.nan, '': np.nan})
 
-    # Enforce strict known values for required taxonomy/identity columns.
-    required_cols = ['CD_TYP_CONS', 'MARQUE', 'MODELE', 'SEGMENT', 'SOUS_SEGMENT']
-    invalid_tokens = {'', 'NAN', 'NONE', 'NULL', '0', '0.0', 'UNKNOWN'}
-    for col in required_cols:
+    # Keep all yearly rows by imputing unresolved categorical fields
+    # with the most frequent observed value in each column.
+    invalid_tokens = {'', 'NAN', 'NONE', 'NULL', '0', '0.0', 'UNKNOWN', 'VIDE', '(VIDE)'}
+    cols_to_mode_fill = [
+        'CD_TYP_CONS', 'MARQUE', 'MODELE', 'SEGMENT', 'SOUS_SEGMENT',
+        'USAGE', 'VILLE', 'ENERGIE', 'SOCIETE',
+        'PAYS_DORIGINE', 'CONTINENT', 'GROUPE', 'DISTRIBUTEUR',
+        'Marché', 'YEAR_MONTH',
+    ]
+    for col in cols_to_mode_fill:
         if col in df.columns:
             s = df[col].astype(str).str.strip()
-            bad = s.str.upper().isin(invalid_tokens)
-            df.loc[bad, col] = np.nan
+            bad = s.str.upper().isin(invalid_tokens) | df[col].isna()
+            valid = df.loc[~bad, col]
+            if len(valid):
+                mode_value = valid.mode(dropna=True).iloc[0]
+                df.loc[bad, col] = mode_value
 
-    # Keep only rows that have known non-placeholder values in all required cols.
-    required_present = [c for c in required_cols if c in df.columns]
-    before_strict = len(df)
-    df = df.dropna(subset=required_present).copy()
-    dropped = before_strict - len(df)
-    print(f"  Strict quality filter (required known values): kept {len(df):,} / {before_strict:,} rows")
-    if dropped:
-        print(f"    Dropped rows: {dropped:,} ({dropped/before_strict*100:.1f}%)")
+    for col in ['SEGMENT', 'SOUS_SEGMENT']:
+        if col in df.columns:
+            s = df[col].astype(str).str.strip()
+            bad = s.str.upper().isin(invalid_tokens) | s.eq('') | df[col].isna()
+            valid = s[~bad]
+            if len(valid):
+                df.loc[bad, col] = valid.mode().iloc[0]
+
+    if 'GENRE' in df.columns:
+        df['GENRE'] = pd.to_numeric(df['GENRE'], errors='coerce')
+        genre_mode = df.loc[df['GENRE'].notna() & (df['GENRE'] != 0), 'GENRE'].mode()
+        if len(genre_mode):
+            df['GENRE'] = df['GENRE'].replace(0, np.nan).fillna(genre_mode.iloc[0])
+
+    if 'CD_VILLE' in df.columns:
+        df['CD_VILLE'] = pd.to_numeric(df['CD_VILLE'], errors='coerce')
+        ville_code_mode = df.loc[df['CD_VILLE'].notna() & (df['CD_VILLE'] != 0), 'CD_VILLE'].mode()
+        if len(ville_code_mode):
+            df['CD_VILLE'] = df['CD_VILLE'].replace(0, np.nan).fillna(ville_code_mode.iloc[0])
+
+    if 'DATE_MEC' in df.columns and 'DATV' in df.columns:
+        df['DATE_MEC'] = pd.to_datetime(df['DATE_MEC'], errors='coerce').fillna(df['DATV'])
+
+    if 'IM_RI' in df.columns:
+        df['IM_RI'] = pd.to_numeric(df['IM_RI'], errors='coerce').round()
+        allowed_im_ri = {10, 20}
+        valid_im_ri = df.loc[df['IM_RI'].isin(allowed_im_ri), 'IM_RI']
+        im_ri_fallback = int(valid_im_ri.mode().iloc[0]) if len(valid_im_ri) else 10
+        df['IM_RI'] = df['IM_RI'].where(df['IM_RI'].isin(allowed_im_ri), np.nan)
+        df['IM_RI'] = df['IM_RI'].fillna(im_ri_fallback).astype('int64')
+
+    if 'PUISSANCE' in df.columns:
+        df['PUISSANCE'] = pd.to_numeric(df['PUISSANCE'], errors='coerce')
+        puissance_nonzero = df.loc[df['PUISSANCE'].notna() & (df['PUISSANCE'] != 0), 'PUISSANCE']
+        if len(puissance_nonzero):
+            df['PUISSANCE'] = df['PUISSANCE'].replace(0, np.nan).fillna(puissance_nonzero.median())
+
+    print(f"  Quality strategy: mode-imputed unresolved fields; kept {len(df):,} / {len(df):,} rows")
 
     for col in ['PUISSANCE','CD_VILLE']:
         if col in df.columns:
