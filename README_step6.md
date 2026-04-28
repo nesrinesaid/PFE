@@ -36,6 +36,31 @@ This step reproduces the main ARTES report outputs using monthly forecasts on `I
 - `rapport_ARTES_s1_2026_by_scenario.png` — Scenario comparison chart
 - `rapport_ARTES_s1_2026_summary.txt` — Auto-generated text report
 
+## Installation
+
+### Requirements
+
+- Python 3.10+
+- See [main README.md](README.md) for full setup instructions
+
+### Quick Install
+
+```bash
+# Full installation (all models)
+pip install -r requirements.txt
+
+# Minimal (skip Prophet if slow)
+pip install pandas numpy matplotlib scikit-learn openpyxl statsmodels xgboost
+```
+
+### Verify Installation
+
+```bash
+python -c "import statsmodels, prophet, xgboost; print('✅ All models installed')"
+```
+
+If Prophet fails, the script auto-detects and continues with SARIMAX + XGBoost fallback.
+
 ## Run
 
 ```powershell
