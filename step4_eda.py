@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import os
 import warnings
+from valider_pipeline import valider_colonnes, COLONNES_REQUISES
 warnings.filterwarnings('ignore')
 
 sns.set_theme(style="whitegrid")
@@ -27,13 +28,39 @@ def main():
 
     print("Loading data...")
     df = pd.read_csv(input_file, parse_dates=['DATV'])
-    df = df.rename(columns={'DATV': 'DAT_V'})
 
-    # Normalize IM_RI to integer labels for robust filtering.
+    # ─── VALIDATE COLONNE IM_RI ───
     if 'IM_RI' not in df.columns:
-        print("ERROR: IM_RI column not found in data_cleaned_enriched.csv")
+        print("❌ ERREUR: Colonne IM_RI non trouvée dans data_cleaned_enriched.csv")
+        print("   IM_RI est requise pour identifier les ventes neufs (IM_RI=10)")
+        print("   Action: Relancer step2_5_enrich_data.py pour ajouter la colonne IM_RI")
         return
     df['IM_RI'] = pd.to_numeric(df['IM_RI'], errors='coerce').round().astype('Int64')
+    if df['IM_RI'].isna().all():
+        print("❌ ERREUR: Colonne IM_RI est all NaN apres coercion")
+        print("   Probleme de qualite donnees: Verifier IM_RI dans data_cleaned_enriched.csv")
+        return
+
+    print("✅ Validation IM_RI reussie")
+    print(f"   IM_RI=10 (ventes neufs):     {(df['IM_RI']==10).sum():,} enregistrements")
+    print(f"   IM_RI=20 (ventes occasion):  {(df['IM_RI']==20).sum():,} enregistrements")
+
+    # French temporal aliases for consistency.
+    if 'ANNEE' in df.columns and 'YEAR' not in df.columns:
+        df['YEAR'] = pd.to_numeric(df['ANNEE'], errors='coerce')
+    if 'MOIS' in df.columns and 'MONTH' not in df.columns:
+        df['MONTH'] = pd.to_numeric(df['MOIS'], errors='coerce')
+    if 'ANNEE_MOIS' in df.columns and 'YEAR_MONTH' not in df.columns:
+        df['YEAR_MONTH'] = df['ANNEE_MOIS'].astype(str)
+
+    # ─── VALIDER ENTRÉE ───
+    try:
+        valider_colonnes(df, COLONNES_REQUISES['step4_eda'], 'step4_eda', verbose=True)
+    except ValueError as e:
+        print(str(e))
+        return
+
+    df = df.rename(columns={'DATV': 'DAT_V'})
 
     if 'YEAR_MONTH' not in df.columns:
         df['YEAR_MONTH'] = df['YEAR'].astype(str) + '-' + df['MONTH'].astype(str).str.zfill(2)
@@ -214,9 +241,14 @@ def main():
         print(f"  Saved: 07_Ventes_Par_Sous_Segment.png")
 
     # ── GRAPH 8: Sales by Marché (VP / VU / Autre) ───────────────────────────
-    marche_col = 'Marché' if 'Marché' in df_neuf.columns else ('MARCHE_TYPE' if 'MARCHE_TYPE' in df_neuf.columns else None)
-    if marche_col and df_neuf[marche_col].notna().sum() > 0:
-        marche_counts = df_neuf[marche_col].value_counts()
+    colonne_marche = 'TYPE_MARCHE'
+    if colonne_marche not in df_neuf.columns:
+        print("❌ ERREUR: Colonne TYPE_MARCHE non trouvee")
+        print(f"   Colonnes disponibles: {list(df_neuf.columns)}")
+        return
+
+    if df_neuf[colonne_marche].notna().sum() > 0:
+        marche_counts = df_neuf[colonne_marche].value_counts()
         plt.figure(figsize=(8, 6))
         colors = ['#2196F3', '#FF9800', '#4CAF50'][:len(marche_counts)]
         wedges, texts, autotexts = plt.pie(
@@ -230,7 +262,7 @@ def main():
             t.set_fontsize(10)
         plt.title('Répartition par Type de Marché (Neufs, IM_RI=10)',
                   fontsize=14, fontweight='bold')
-        nn = df_neuf[marche_col].notna().sum()
+        nn = df_neuf[colonne_marche].notna().sum()
         plt.figtext(0.5, 0.01, f'Coverage: {nn:,} / {len(df_neuf):,} ({nn/len(df_neuf)*100:.1f}%)',
                     ha='center', fontsize=8, color='gray')
         plt.tight_layout()
@@ -363,7 +395,7 @@ def main():
     print(f"    Outlier months: {len(outliers)}")
 
     print(f"\n  Enrichment coverage:")
-    for col in ['SEGMENT', 'SOUS_SEGMENT', 'Marché', 'MARCHE_TYPE', 'GROUPE', 'PAYS_DORIGINE', 'CONTINENT']:
+    for col in ['SEGMENT', 'SOUS_SEGMENT', 'TYPE_MARCHE', 'GROUPE', 'PAYS_DORIGINE', 'CONTINENT']:
         if col in df_neuf.columns:
             nn = df_neuf[col].notna().sum()
             print(f"    {col:20s}: {nn/len(df_neuf)*100:.1f}%")

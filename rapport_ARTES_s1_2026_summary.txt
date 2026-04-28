@@ -1,0 +1,9 @@
+Rapport ARTES — Prévisions S1 2026 par scénario
+
+Méthodologie: ensemble SARIMAX + Prophet + XGBoost (shares). Scénarios macro fournis dans 'donnees_externes_tunisie.xlsx'.
+
+- Scénario BASELINE: S1 2026 total = 229,604 unités
+- Scénario OPTIMISTE: S1 2026 total = 229,604 unités (+0 vs baseline, +0.0%)
+- Scénario PRUDENT: S1 2026 total = 229,604 unités (+0 vs baseline, +0.0%)
+
+Remarques: Ces résultats dépendent fortement des hypothèses macro. Voir CSVs et graphique pour détails mensuels.

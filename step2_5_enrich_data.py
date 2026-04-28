@@ -39,8 +39,8 @@ GARBAGE_COLS = [
 FINAL_COLS = [
     'ID','DATV','CD_TYP_CONS','IM_RI','MARQUE','MODELE','GENRE','USAGE',
     'CD_VILLE','VILLE','ENERGIE','PUISSANCE',
-    'Marché','SOCIETE','DATE_MEC',
-    'YEAR','MONTH','YEAR_MONTH',
+    'TYPE_MARCHE','SOCIETE','DATE_MEC',
+    'ANNEE','MOIS','ANNEE_MOIS',
     'SEGMENT','SOUS_SEGMENT',
     'PAYS_DORIGINE','CONTINENT',
     'GROUPE','DISTRIBUTEUR',
@@ -238,7 +238,7 @@ def main():
     # SOCIETE and DATE_MEC
     df = df.rename(columns={'SOCIT': 'SOCIETE', 'DMC': 'DATE_MEC'}, errors='ignore')
 
-    # Preserve the source Marché field and expose it under the canonical output name.
+    # Preserve the source Marche field then standardize to TYPE_MARCHE.
     if 'MARCH' in df.columns:
         df['Marché'] = df['MARCH']
     else:
@@ -250,7 +250,7 @@ def main():
         df = safe_merge(df, df_cdg[['CD_GENRE_K', 'MARCH_TYPE']], 'CD_GENRE_K', ['MARCH_TYPE'], 'CD_GENRE Marché', len(df))
         df['Marché'] = df['Marché'].fillna(df['MARCH_TYPE'])
 
-    # Final Marché fallback to avoid empty values in downstream yearly outputs.
+    # Final Marche fallback to avoid empty values in downstream yearly outputs.
     if 'USAGE' in df.columns:
         usage_u = df['USAGE'].astype(str).str.upper()
         vp_mask = df['Marché'].isna() & usage_u.str.contains('PARTICUL', na=False)
@@ -258,6 +258,18 @@ def main():
         df.loc[vp_mask, 'Marché'] = 'Marché VP'
         df.loc[vu_mask, 'Marché'] = 'Marché VU'
     df['Marché'] = df['Marché'].fillna('Marché Autre')
+
+    # ─── ENRICHISSEMENT TYPE DE MARCHÉ ───
+    # TYPE_MARCHE est derive de la colonne source 'Marché'.
+    # Valeurs: 'VP' = Vehicules Particuliers, 'VU' = Vehicules Utilitaires.
+    # Cet enrichissement est requis pour step4, step5 et step6.
+    if 'Marché' in df.columns:
+        df['TYPE_MARCHE'] = df['Marché'].astype(str).str.upper().str.extract(r'(VP|VU)', expand=False)
+        print("  Creation de TYPE_MARCHE depuis Marche")
+        print(f"    VP (Particuliers): {(df['TYPE_MARCHE'] == 'VP').sum():,}")
+        print(f"    VU (Utilitaires):  {(df['TYPE_MARCHE'] == 'VU').sum():,}")
+    else:
+        df['TYPE_MARCHE'] = np.nan
 
     # Date types
     df['DATV'] = pd.to_datetime(df['DATV'], errors='coerce')
@@ -451,15 +463,14 @@ def main():
     nn = df['PAYS_DORIGINE'].notna().sum()
     print(f"  PAYS_DORIGINE:               {nn:,} ({nn/n*100:.1f}%)")
 
-    # Marché comes directly from the source data (MARCH), not a lookup join.
-    nn = df['MARCHE_TYPE'].notna().sum() if 'MARCHE_TYPE' in df.columns else 0
-    print(f"  Marché:                     {nn:,} ({nn/n*100:.1f}%)")
+    nn = df['TYPE_MARCHE'].notna().sum() if 'TYPE_MARCHE' in df.columns else 0
+    print(f"  TYPE_MARCHE:                {nn:,} ({nn/n*100:.1f}%)")
 
     # ── 6. Clean up helper columns ────────────────────────────────────────────
     df = df.drop(columns=['CD_TYP_CONS_K','MARQUE_K','MK','ML','GENRE_K','CD_GENRE_K','MARCH_TYPE'], errors='ignore')
 
     # ── 7. Fix data types ─────────────────────────────────────────────────────
-    str_cols = ['CD_TYP_CONS','MARQUE','MODELE','GENRE','USAGE','VILLE','ENERGIE','MARCHE_TYPE','Marché',
+    str_cols = ['CD_TYP_CONS','MARQUE','MODELE','GENRE','USAGE','VILLE','ENERGIE','TYPE_MARCHE',
                 'SOCIETE','YEAR_MONTH','SEGMENT','SOUS_SEGMENT',
                 'PAYS_DORIGINE','CONTINENT','GROUPE','DISTRIBUTEUR']
     for col in str_cols:
@@ -473,7 +484,7 @@ def main():
         'CD_TYP_CONS', 'MARQUE', 'MODELE', 'SEGMENT', 'SOUS_SEGMENT',
         'USAGE', 'VILLE', 'ENERGIE', 'SOCIETE',
         'PAYS_DORIGINE', 'CONTINENT', 'GROUPE', 'DISTRIBUTEUR',
-        'Marché', 'YEAR_MONTH',
+        'TYPE_MARCHE', 'YEAR_MONTH',
     ]
     for col in cols_to_mode_fill:
         if col in df.columns:
@@ -520,6 +531,14 @@ def main():
         puissance_nonzero = df.loc[df['PUISSANCE'].notna() & (df['PUISSANCE'] != 0), 'PUISSANCE']
         if len(puissance_nonzero):
             df['PUISSANCE'] = df['PUISSANCE'].replace(0, np.nan).fillna(puissance_nonzero.median())
+
+    # French temporal aliases used by downstream steps.
+    if 'YEAR' in df.columns:
+        df['ANNEE'] = pd.to_numeric(df['YEAR'], errors='coerce')
+    if 'MONTH' in df.columns:
+        df['MOIS'] = pd.to_numeric(df['MONTH'], errors='coerce')
+    if 'YEAR_MONTH' in df.columns:
+        df['ANNEE_MOIS'] = df['YEAR_MONTH'].astype(str)
 
     print(f"  Quality strategy: mode-imputed unresolved fields; kept {len(df):,} / {len(df):,} rows")
 
