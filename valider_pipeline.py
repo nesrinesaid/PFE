@@ -1,6 +1,6 @@
 """
 Utilitaires de validation du pipeline pour le PFE.
-Utilise par les etapes 4, 5 et 6 pour verifier l'integrite des donnees.
+Utilisé par les étapes 4, 5 et 6 pour vérifier l'intégrité des données.
 """
 
 
@@ -9,9 +9,9 @@ def valider_colonnes(df, colonnes_requises, nom_etape, verbose=True):
     Valider que le dataframe contient toutes les colonnes requises.
 
     Args:
-        df: DataFrame Pandas a valider
+        df: DataFrame Pandas à valider
         colonnes_requises: Liste des noms de colonnes qui doivent exister
-        nom_etape: Nom de l'etape appelante (ex: 'step4_eda')
+        nom_etape: Nom de l'étape appelante (ex: 'step4_eda')
         verbose: Imprimer le rapport de validation si True
 
     Returns:
@@ -28,18 +28,18 @@ def valider_colonnes(df, colonnes_requises, nom_etape, verbose=True):
             f"\n❌ ERREUR DE VALIDATION dans {nom_etape}\n"
             f"   Colonnes requises manquantes: {manquantes}\n"
             f"   Colonnes disponibles: {disponibles}\n"
-            f"   Cela signifie generalement qu'une etape precedente a echoue ou a ete ignoree.\n"
-            f"   Depannage:\n"
-            f"   1. Verifier que les etapes precedentes se sont completees avec succes\n"
-            f"   2. Verifier le chemin et le contenu du fichier d'entree\n"
-            f"   3. Examiner les messages d'erreur des etapes precedentes"
+            f"   Cela signifie généralement qu'une étape précédente a échoué ou a été ignorée.\n"
+            f"   Dépannage:\n"
+            f"   1. Vérifier que les étapes précédentes se sont complétées avec succès\n"
+            f"   2. Vérifier le chemin et le contenu du fichier d'entrée\n"
+            f"   3. Examiner les messages d'erreur des étapes précédentes"
         )
         raise ValueError(message_erreur)
 
     if verbose:
-        print(f"✅ Validation des colonnes {nom_etape} reussie")
+        print(f"✅ Validation des colonnes {nom_etape} réussie")
         print(f"   Colonnes requises: {colonnes_requises}")
-        print(f"   Total colonnes dans les donnees: {len(df.columns)}")
+        print(f"   Total colonnes dans les données: {len(df.columns)}")
 
     return True
 
@@ -50,8 +50,8 @@ def valider_completude_donnees(df, col, nom_etape, couverture_min=0.5, verbose=T
 
     Args:
         df: DataFrame Pandas
-        col: Nom de la colonne a verifier
-        nom_etape: Nom de l'etape appelante
+        col: Nom de la colonne à vérifier
+        nom_etape: Nom de l'étape appelante
         couverture_min: Couverture minimale % (0.5 = 50%)
         verbose: Imprimer le rapport si True
 
@@ -62,10 +62,10 @@ def valider_completude_donnees(df, col, nom_etape, couverture_min=0.5, verbose=T
         ValueError si la couverture est en-dessous du seuil
     """
     if col not in df.columns:
-        raise ValueError(f"Colonne '{col}' non trouvee dans le dataframe")
+        raise ValueError(f"Colonne '{col}' non trouvée dans le dataframe")
 
     if len(df) == 0:
-        raise ValueError(f"{nom_etape}: DataFrame vide, impossible de verifier la completude")
+        raise ValueError(f"{nom_etape}: DataFrame vide, impossible de vérifier la complétude")
 
     couverture = df[col].notna().sum() / len(df)
 
@@ -73,7 +73,7 @@ def valider_completude_donnees(df, col, nom_etape, couverture_min=0.5, verbose=T
         raise ValueError(
             f"❌ {nom_etape}: Colonne '{col}' a une couverture insuffisante\n"
             f"   Couverture: {couverture*100:.1f}% (minimum requis: {couverture_min*100:.0f}%)\n"
-            f"   Cela indique un probleme de qualite des donnees ou d'echec d'enrichissement"
+            f"   Cela indique un problème de qualité des données ou d'échec d'enrichissement"
         )
 
     if verbose:

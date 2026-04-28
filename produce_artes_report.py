@@ -1,3 +1,18 @@
+"""
+Post-process Step 6 scenario forecasts into consolidated ARTES report.
+
+This script reads per-scenario CSV outputs from step6_modeling.py and generates:
+  - rapport_ARTES_s1_2026_by_scenario.csv  : S1 2026 summary by scenario
+  - rapport_ARTES_monthly_by_scenario.csv  : Monthly detail across scenarios
+  - rapport_ARTES_s1_2026_by_scenario.png  : Visualization (scenarios vs time)
+  - rapport_ARTES_s1_2026_summary.txt      : Auto-generated text summary for mémoire
+
+Prerequisite: Run step6_modeling.py with scenario sheets in donnees_externes_tunisie.xlsx
+
+Usage:
+    python produce_artes_report.py
+"""
+
 import os
 import pandas as pd
 import matplotlib.pyplot as plt
