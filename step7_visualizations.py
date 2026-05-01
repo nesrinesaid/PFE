@@ -19,6 +19,20 @@ from datetime import datetime
 # CONFIGURATION
 # ============================================================
 
+# Chart dimensions and styling
+CHART_WIDTH = 12
+CHART_HEIGHT = 6
+CHART_HEIGHT_TALL = 12
+MARKER_SIZE = 8
+MARKER_SIZE_SMALL = 7
+LINE_WIDTH = 2.5
+LINE_WIDTH_THIN = 2
+BAR_EDGE_WIDTH = 1.5
+DPI = 300
+ALPHA_BAR = 0.8
+ALPHA_FILL = 0.3
+ALPHA_GRID = 0.3
+
 # Set professional style
 sns.set_style("whitegrid")
 sns.set_palette("husl")
@@ -70,8 +84,17 @@ def main():
             return
 
     forecast = pd.read_csv(forecast_file)
-    # Ensure necessary columns exist
+    # Validate forecast data
+    if forecast.empty:
+        print("❌ ERROR: Forecast data is empty.")
+        return
+    if forecast['Date'].isna().any():
+        print("⚠️  WARNING: Some dates are NaN. Cleaning...")
+        forecast = forecast.dropna(subset=['Date'])
     forecast['Date'] = pd.to_datetime(forecast['Date'])
+    if len(forecast) == 0:
+        print("❌ ERROR: No valid forecast rows after date validation.")
+        return
     print(f"✅ Loaded forecast data: {len(forecast)} rows")
     print()
 
@@ -121,7 +144,7 @@ def main():
 # ============================================================
 
 def create_chart_total_market(forecast, project_root):
-    fig, ax = plt.subplots(figsize=(12, 6))
+    fig, ax = plt.subplots(figsize=(CHART_WIDTH, CHART_HEIGHT))
     
     # Create bar chart
     bars = ax.bar(
@@ -129,8 +152,8 @@ def create_chart_total_market(forecast, project_root):
         forecast.get('PREV_TOTAL_MARCHE', forecast.get('TOTAL_MARCHE', np.nan)),
         color=COLORS['total'],
         edgecolor='black',
-        linewidth=1.5,
-        alpha=0.8
+        linewidth=BAR_EDGE_WIDTH,
+        alpha=ALPHA_BAR
     )
     
     # Add value labels on bars
@@ -156,19 +179,19 @@ def create_chart_total_market(forecast, project_root):
     
     plt.tight_layout()
     output_path = os.path.join(project_root, '13_Forecast_Total_Market.png')
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.savefig(output_path, dpi=DPI, bbox_inches='tight')
     plt.close()
     print(f"  ✅ Saved: 13_Forecast_Total_Market.png")
 
 
 def create_chart_vp_vu_breakdown(forecast, project_root):
-    fig, ax = plt.subplots(figsize=(12, 6))
+    fig, ax = plt.subplots(figsize=(CHART_WIDTH, CHART_HEIGHT))
     x = np.arange(len(forecast))
     width = 0.35
     vp = forecast.get('PREV_VP', forecast.get('VP', np.zeros(len(forecast))))
     vu = forecast.get('PREV_VU', forecast.get('VU', np.zeros(len(forecast))))
-    bars1 = ax.bar(x - width/2, vp, width, label='VP (Particuliers)', color=COLORS['vp'], edgecolor='black', linewidth=1.5, alpha=0.8)
-    bars2 = ax.bar(x + width/2, vu, width, label='VU (Utilitaires)', color=COLORS['vu'], edgecolor='black', linewidth=1.5, alpha=0.8)
+    bars1 = ax.bar(x - width/2, vp, width, label='VP (Particuliers)', color=COLORS['vp'], edgecolor='black', linewidth=BAR_EDGE_WIDTH, alpha=ALPHA_BAR)
+    bars2 = ax.bar(x + width/2, vu, width, label='VU (Utilitaires)', color=COLORS['vu'], edgecolor='black', linewidth=BAR_EDGE_WIDTH, alpha=ALPHA_BAR)
     for bar in bars1:
         height = bar.get_height()
         ax.text(bar.get_x() + bar.get_width()/2., height, f'{int(height):,}', ha='center', va='bottom', fontsize=9, fontweight='bold')
@@ -185,16 +208,16 @@ def create_chart_vp_vu_breakdown(forecast, project_root):
     ax.set_axisbelow(True)
     plt.tight_layout()
     output_path = os.path.join(project_root, '14_Forecast_VP_vs_VU.png')
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.savefig(output_path, dpi=DPI, bbox_inches='tight')
     plt.close()
     print(f"  ✅ Saved: 14_Forecast_VP_vs_VU.png")
 
 
 def create_chart_artes_volume(forecast, project_root):
-    fig, ax = plt.subplots(figsize=(12, 6))
+    fig, ax = plt.subplots(figsize=(CHART_WIDTH, CHART_HEIGHT))
     artes = forecast.get('PREV_VOL_ARTES', forecast.get('VOL_ARTES', np.zeros(len(forecast))))
-    ax.plot(forecast['Date'], artes, marker='o', linewidth=3, markersize=8, color=COLORS['artes'], label='Volume ARTES')
-    ax.fill_between(forecast['Date'], artes, alpha=0.3, color=COLORS['artes'])
+    ax.plot(forecast['Date'], artes, marker='o', linewidth=LINE_WIDTH, markersize=MARKER_SIZE, color=COLORS['artes'], label='Volume ARTES')
+    ax.fill_between(forecast['Date'], artes, alpha=ALPHA_FILL, color=COLORS['artes'])
     for idx, row in forecast.iterrows():
         try:
             ax.text(row['Date'], artes.iloc[idx] + max(artes)*0.03, f"{int(artes.iloc[idx]):,}", ha='center', va='bottom', fontweight='bold', fontsize=10)
@@ -211,17 +234,17 @@ def create_chart_artes_volume(forecast, project_root):
     ax.set_axisbelow(True)
     plt.tight_layout()
     output_path = os.path.join(project_root, '15_Forecast_ARTES_Volume.png')
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.savefig(output_path, dpi=DPI, bbox_inches='tight')
     plt.close()
     print(f"  ✅ Saved: 15_Forecast_ARTES_Volume.png")
 
 
 def create_chart_market_share(forecast, project_root):
-    fig, ax = plt.subplots(figsize=(12, 6))
+    fig, ax = plt.subplots(figsize=(CHART_WIDTH, CHART_HEIGHT))
     part_vp = forecast.get('PART_VP', forecast.get('PART_VP', np.zeros(len(forecast))))
     part_artes = forecast.get('PREV_PART_ARTES', forecast.get('PART_ARTES', np.zeros(len(forecast))))
-    ax.plot(forecast['Date'], part_vp * 100, marker='s', linewidth=2.5, markersize=8, color=COLORS['vp'], label='Part VP (%)', alpha=0.8)
-    ax.plot(forecast['Date'], part_artes * 100, marker='^', linewidth=2.5, markersize=8, color=COLORS['artes'], label='Part ARTES (%)', alpha=0.8)
+    ax.plot(forecast['Date'], part_vp * 100, marker='s', linewidth=LINE_WIDTH, markersize=MARKER_SIZE, color=COLORS['vp'], label='Part VP (%)', alpha=0.8)
+    ax.plot(forecast['Date'], part_artes * 100, marker='^', linewidth=LINE_WIDTH, markersize=MARKER_SIZE, color=COLORS['artes'], label='Part ARTES (%)', alpha=0.8)
     ax.set_xlabel('Mois', fontsize=12, fontweight='bold')
     ax.set_ylabel('Part de Marché (%)', fontsize=12, fontweight='bold')
     ax.set_title('Évolution des Parts de Marché - S1 2026', fontsize=14, fontweight='bold', pad=20)
@@ -229,12 +252,12 @@ def create_chart_market_share(forecast, project_root):
     ax.xaxis.set_major_locator(plt.matplotlib.dates.MonthLocator())
     plt.xticks(rotation=45, ha='right')
     ax.legend(fontsize=11, loc='best')
-    ax.grid(alpha=0.3, linestyle='--')
+    ax.grid(alpha=ALPHA_GRID, linestyle='--')
     ax.set_axisbelow(True)
     ax.set_ylim([0, 100])
     plt.tight_layout()
     output_path = os.path.join(project_root, '16_Forecast_Market_Share.png')
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.savefig(output_path, dpi=DPI, bbox_inches='tight')
     plt.close()
     print(f"  ✅ Saved: 16_Forecast_Market_Share.png")
 
@@ -254,14 +277,14 @@ def create_chart_scenarios(project_root):
         optimiste['Date'] = pd.to_datetime(optimiste['Date'])
     if prudent is not None:
         prudent['Date'] = pd.to_datetime(prudent['Date'])
-    fig, ax = plt.subplots(figsize=(12, 6))
-    ax.plot(baseline['Date'], baseline['PREV_TOTAL_MARCHE'], marker='o', linewidth=2.5, markersize=8, color=COLORS['baseline'], label='Baseline', alpha=0.85)
+    fig, ax = plt.subplots(figsize=(CHART_WIDTH, CHART_HEIGHT))
+    ax.plot(baseline['Date'], baseline['PREV_TOTAL_MARCHE'], marker='o', linewidth=LINE_WIDTH, markersize=MARKER_SIZE, color=COLORS['baseline'], label='Baseline', alpha=0.85)
     if optimiste is not None:
-        ax.plot(optimiste['Date'], optimiste['PREV_TOTAL_MARCHE'], marker='s', linewidth=2.5, markersize=8, color=COLORS['optimiste'], label='Optimiste', alpha=0.85)
+        ax.plot(optimiste['Date'], optimiste['PREV_TOTAL_MARCHE'], marker='s', linewidth=LINE_WIDTH, markersize=MARKER_SIZE, color=COLORS['optimiste'], label='Optimiste', alpha=0.85)
     if prudent is not None:
-        ax.plot(prudent['Date'], prudent['PREV_TOTAL_MARCHE'], marker='^', linewidth=2.5, markersize=8, color=COLORS['prudent'], label='Prudent', alpha=0.85)
+        ax.plot(prudent['Date'], prudent['PREV_TOTAL_MARCHE'], marker='^', linewidth=LINE_WIDTH, markersize=MARKER_SIZE, color=COLORS['prudent'], label='Prudent', alpha=0.85)
     if (optimiste is not None) and (prudent is not None):
-        ax.fill_between(baseline['Date'], prudent['PREV_TOTAL_MARCHE'], optimiste['PREV_TOTAL_MARCHE'], alpha=0.2, color='gray', label='Plage de prévision')
+        ax.fill_between(baseline['Date'], prudent['PREV_TOTAL_MARCHE'], optimiste['PREV_TOTAL_MARCHE'], alpha=ALPHA_FILL, color='gray', label='Plage de prévision')
     ax.set_xlabel('Mois', fontsize=12, fontweight='bold')
     ax.set_ylabel('Total Marché (Ventes)', fontsize=12, fontweight='bold')
     ax.set_title('Comparaison des Scénarios Macroéconomiques - S1 2026', fontsize=14, fontweight='bold', pad=20)
@@ -269,21 +292,21 @@ def create_chart_scenarios(project_root):
     ax.xaxis.set_major_locator(plt.matplotlib.dates.MonthLocator())
     plt.xticks(rotation=45, ha='right')
     ax.legend(fontsize=11, loc='best')
-    ax.grid(alpha=0.3, linestyle='--')
+    ax.grid(alpha=ALPHA_GRID, linestyle='--')
     ax.set_axisbelow(True)
     plt.tight_layout()
     output_path = os.path.join(project_root, '17_Forecast_Scenarios_Comparison.png')
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.savefig(output_path, dpi=DPI, bbox_inches='tight')
     plt.close()
     print(f"  ✅ Saved: 17_Forecast_Scenarios_Comparison.png")
 
 
 def create_dashboard_4panel(forecast, project_root):
-    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    fig, axes = plt.subplots(2, 2, figsize=(16, CHART_HEIGHT_TALL))
     fig.suptitle('PRÉVISIONS ARTES - S1 2026 - TABLEAU DE BORD COMPLET', fontsize=16, fontweight='bold', y=0.995)
     # Panel 1
     ax = axes[0, 0]
-    bars = ax.bar(range(len(forecast)), forecast.get('PREV_TOTAL_MARCHE', forecast.get('TOTAL_MARCHE', np.zeros(len(forecast)))), color=COLORS['total'], edgecolor='black', linewidth=1.2, alpha=0.8)
+    bars = ax.bar(range(len(forecast)), forecast.get('PREV_TOTAL_MARCHE', forecast.get('TOTAL_MARCHE', np.zeros(len(forecast)))), color=COLORS['total'], edgecolor='black', linewidth=BAR_EDGE_WIDTH, alpha=ALPHA_BAR)
     for i, bar in enumerate(bars):
         height = bar.get_height()
         ax.text(i, height + max(forecast.get('PREV_TOTAL_MARCHE', forecast.get('TOTAL_MARCHE', np.zeros(len(forecast))))) * 0.02, f"{int(height):,}", ha='center', va='bottom', fontweight='bold', fontsize=9)
@@ -297,8 +320,8 @@ def create_dashboard_4panel(forecast, project_root):
     ax = axes[0, 1]
     x = np.arange(len(forecast))
     width = 0.35
-    ax.bar(x - width/2, forecast.get('PREV_VP', np.zeros(len(forecast))), width, label='VP', color=COLORS['vp'], alpha=0.8, edgecolor='black', linewidth=1.2)
-    ax.bar(x + width/2, forecast.get('PREV_VU', np.zeros(len(forecast))), width, label='VU', color=COLORS['vu'], alpha=0.8, edgecolor='black', linewidth=1.2)
+    ax.bar(x - width/2, forecast.get('PREV_VP', np.zeros(len(forecast))), width, label='VP', color=COLORS['vp'], alpha=ALPHA_BAR, edgecolor='black', linewidth=BAR_EDGE_WIDTH)
+    ax.bar(x + width/2, forecast.get('PREV_VU', np.zeros(len(forecast))), width, label='VU', color=COLORS['vu'], alpha=ALPHA_BAR, edgecolor='black', linewidth=BAR_EDGE_WIDTH)
     ax.set_title('Décomposition VP / VU', fontsize=12, fontweight='bold')
     ax.set_ylabel('Ventes', fontsize=11)
     ax.set_xticks(x)
@@ -308,8 +331,8 @@ def create_dashboard_4panel(forecast, project_root):
     ax.set_axisbelow(True)
     # Panel 3
     ax = axes[1, 0]
-    ax.plot(forecast['Date'], forecast.get('PREV_VOL_ARTES', np.zeros(len(forecast))), marker='o', linewidth=2.5, markersize=8, color=COLORS['artes'], label='ARTES')
-    ax.fill_between(forecast['Date'], forecast.get('PREV_VOL_ARTES', np.zeros(len(forecast))), alpha=0.3, color=COLORS['artes'])
+    ax.plot(forecast['Date'], forecast.get('PREV_VOL_ARTES', np.zeros(len(forecast))), marker='o', linewidth=LINE_WIDTH, markersize=MARKER_SIZE, color=COLORS['artes'], label='ARTES')
+    ax.fill_between(forecast['Date'], forecast.get('PREV_VOL_ARTES', np.zeros(len(forecast))), alpha=ALPHA_FILL, color=COLORS['artes'])
     ax.set_title('Volume ARTES (Renault+Dacia+Nissan)', fontsize=12, fontweight='bold')
     ax.set_ylabel('Ventes', fontsize=11)
     ax.xaxis.set_major_formatter(plt.matplotlib.dates.DateFormatter('%b'))
@@ -318,19 +341,19 @@ def create_dashboard_4panel(forecast, project_root):
     ax.set_axisbelow(True)
     # Panel 4
     ax = axes[1, 1]
-    ax.plot(forecast['Date'], forecast.get('PART_VP', np.zeros(len(forecast))) * 100, marker='s', linewidth=2, markersize=7, color=COLORS['vp'], label='Part VP (%)', alpha=0.8)
-    ax.plot(forecast['Date'], forecast.get('PREV_PART_ARTES', np.zeros(len(forecast))) * 100, marker='^', linewidth=2, markersize=7, color=COLORS['artes'], label='Part ARTES (%)', alpha=0.8)
+    ax.plot(forecast['Date'], forecast.get('PART_VP', np.zeros(len(forecast))) * 100, marker='s', linewidth=LINE_WIDTH_THIN, markersize=MARKER_SIZE_SMALL, color=COLORS['vp'], label='Part VP (%)', alpha=0.8)
+    ax.plot(forecast['Date'], forecast.get('PREV_PART_ARTES', np.zeros(len(forecast))) * 100, marker='^', linewidth=LINE_WIDTH_THIN, markersize=MARKER_SIZE_SMALL, color=COLORS['artes'], label='Part ARTES (%)', alpha=0.8)
     ax.set_title('Évolution des Parts de Marché', fontsize=12, fontweight='bold')
     ax.set_ylabel('Part (%)', fontsize=11)
     ax.xaxis.set_major_formatter(plt.matplotlib.dates.DateFormatter('%b'))
     plt.setp(ax.xaxis.get_majorticklabels(), rotation=45)
     ax.legend(fontsize=10)
-    ax.grid(alpha=0.3)
+    ax.grid(alpha=ALPHA_GRID)
     ax.set_axisbelow(True)
     ax.set_ylim([0, 100])
     plt.tight_layout(rect=[0, 0, 1, 0.99])
     output_path = os.path.join(project_root, '18_Forecast_Complete_Dashboard.png')
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.savefig(output_path, dpi=DPI, bbox_inches='tight')
     plt.close()
     print(f"  ✅ Saved: 18_Forecast_Complete_Dashboard.png")
 

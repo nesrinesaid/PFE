@@ -206,23 +206,28 @@ def main():
         df_jour[f'JS_{d}'] = (df_jour['JOUR_SEMAINE'] == d).astype(int)
 
     # ============================================================
-    # PART 4b: Enhanced Feature Engineering
+    # PART 4b: Ingénierie des Caractéristiques Avancée
     # ============================================================
-    print("\nPART 4b: Enhanced feature engineering (domain-specific)...")
+    print("\nPART 4b: Ingénierie des caractéristiques avancée (domaine-spécifique)...")
 
-    # Feature 1: School Holidays (July-September)
+    # Caractéristique 1: Vacances scolaires (juillet-septembre)
+    # Rationale: Les familles voyagent en été, plus de voitures sur les routes
     df_jour['EST_VACANCES_SCOLAIRES'] = df_jour['MOIS'].isin([7, 8, 9]).astype(int)
 
-    # Feature 2: End of Month Effect (Day 25+)
+    # Caractéristique 2: Effet fin de mois (jour 25+)
+    # Rationale: Les salaires arrivent, décisions d'achat augmentent
     df_jour['EST_FIN_MOIS'] = (df_jour['Date'].dt.day >= 25).astype(int)
 
-    # Feature 3: Beginning of Month Effect (Day 1-5)
+    # Caractéristique 3: Effet début de mois (jour 1-5)
+    # Rationale: Certains acheteurs font leurs achats début de mois
     df_jour['EST_DEBUT_MOIS'] = (df_jour['Date'].dt.day <= 5).astype(int)
 
-    # Feature 4: Weekday Effect (Mon-Fri)
+    # Caractéristique 4: Effet jour ouvrable (lun-ven)
+    # Rationale: Les concessionnaires ont des heures complètes en semaine
     df_jour['EST_JOUR_OUVRABLE'] = (df_jour['JOUR_SEMAINE'] < 5).astype(int)
 
-    # Feature 5: Public Holidays (Tunisia-specific)
+    # Caractéristique 5: Jours fériés (Tunisie-spécifique)
+    # Rationale: Les modèles de ventes changent pendant les jours fériés
     public_holidays_tunisia = [
         '2019-01-14','2020-01-14','2021-01-14','2022-01-14','2023-01-14','2024-01-14','2025-01-14','2026-01-14',
         '2019-03-20','2020-03-20','2021-03-20','2022-03-20','2023-03-20','2024-03-20','2025-03-20','2026-03-20',
@@ -231,24 +236,27 @@ def main():
     ]
     df_jour['EST_FETE_PUBLIQUE'] = df_jour['Date'].isin(pd.to_datetime(public_holidays_tunisia)).astype(int)
 
-    # Feature 6: Quarterly Budget Cycle (start months)
+    # Caractéristique 6: Cycle budgétaire trimestriel (mois de début)
+    # Rationale: Les clients B2B achètent souvent au début des trimestres
     df_jour['EST_DEBUT_TRIMESTRE'] = df_jour['Date'].dt.month.isin([1, 4, 7, 10]).astype(int)
 
-    # Feature 7: Year-End Rush (Nov-Dec)
+    # Caractéristique 7: Ruée en fin d'année (nov-déc)
+    # Rationale: Fin d'année fiscale, épuisement budgétaire, liquidation d'inventaire
     df_jour['EST_NOVEMBRE_DECEMBRE'] = df_jour['MOIS'].isin([11, 12]).astype(int)
 
-    # Feature 8: New Year Effect (Jan-Feb)
+    # Caractéristique 8: Effet début d'année (jan-fév)
+    # Rationale: Résolutions du Nouvel An, nouvelles allocations budgétaires
     df_jour['EST_JANVIER_FEVRIER'] = df_jour['MOIS'].isin([1, 2]).astype(int)
 
-    print("  ✅ Added 8 engineered features:")
-    print("     1. EST_VACANCES_SCOLAIRES (Jul-Sep)")
-    print("     2. EST_FIN_MOIS (Day 25+)")
-    print("     3. EST_DEBUT_MOIS (Day 1-5)")
-    print("     4. EST_JOUR_OUVRABLE (Mon-Fri)")
-    print("     5. EST_FETE_PUBLIQUE (Tunisia holidays)")
-    print("     6. EST_DEBUT_TRIMESTRE (Quarter starts)")
-    print("     7. EST_NOVEMBRE_DECEMBRE (Nov-Dec)")
-    print("     8. EST_JANVIER_FEVRIER (Jan-Feb)")
+    print("  ✅ 8 caractéristiques ajoutées:")
+    print("     1. EST_VACANCES_SCOLAIRES (juil-sep)")
+    print("     2. EST_FIN_MOIS (jour 25+)")
+    print("     3. EST_DEBUT_MOIS (jour 1-5)")
+    print("     4. EST_JOUR_OUVRABLE (lun-ven)")
+    print("     5. EST_FETE_PUBLIQUE (jours fériés Tunisie)")
+    print("     6. EST_DEBUT_TRIMESTRE (début de trimestre)")
+    print("     7. EST_NOVEMBRE_DECEMBRE (nov-déc)")
+    print("     8. EST_JANVIER_FEVRIER (jan-fév)")
     # ============================================================
 
     # PART 5: Lag features
