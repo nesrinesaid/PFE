@@ -240,14 +240,35 @@ def create_chart_artes_volume(forecast, project_root):
 
 
 def create_chart_market_share(forecast, project_root):
+    """
+    Chart 4: Market share evolution for VP, VU, and ARTES
+    Shows all three key market segments over time
+    """
     fig, ax = plt.subplots(figsize=(CHART_WIDTH, CHART_HEIGHT))
-    part_vp = forecast.get('PART_VP', forecast.get('PART_VP', np.zeros(len(forecast))))
+    
+    # Get market shares
+    part_vp = forecast.get('PART_VP', np.zeros(len(forecast)))
+    part_vu = 1 - part_vp  # VU share is complement of VP share
     part_artes = forecast.get('PREV_PART_ARTES', forecast.get('PART_ARTES', np.zeros(len(forecast))))
-    ax.plot(forecast['Date'], part_vp * 100, marker='s', linewidth=LINE_WIDTH, markersize=MARKER_SIZE, color=COLORS['vp'], label='Part VP (%)', alpha=0.8)
-    ax.plot(forecast['Date'], part_artes * 100, marker='^', linewidth=LINE_WIDTH, markersize=MARKER_SIZE, color=COLORS['artes'], label='Part ARTES (%)', alpha=0.8)
+    
+    # Plot all three shares
+    ax.plot(forecast['Date'], part_vp * 100, 
+            marker='o', linewidth=LINE_WIDTH, markersize=MARKER_SIZE, 
+            color=COLORS['vp'], label='Part VP (%)', alpha=0.85)
+    
+    ax.plot(forecast['Date'], part_vu * 100, 
+            marker='s', linewidth=LINE_WIDTH, markersize=MARKER_SIZE, 
+            color=COLORS['vu'], label='Part VU (%)', alpha=0.85)
+    
+    ax.plot(forecast['Date'], part_artes * 100, 
+            marker='^', linewidth=LINE_WIDTH, markersize=MARKER_SIZE, 
+            color=COLORS['artes'], label='Part ARTES (%)', alpha=0.85)
+    
+    # Formatting
     ax.set_xlabel('Mois', fontsize=12, fontweight='bold')
     ax.set_ylabel('Part de Marché (%)', fontsize=12, fontweight='bold')
-    ax.set_title('Évolution des Parts de Marché - S1 2026', fontsize=14, fontweight='bold', pad=20)
+    ax.set_title('Évolution des Parts de Marché - S1 2026 (VP, VU, ARTES)', 
+                 fontsize=14, fontweight='bold', pad=20)
     ax.xaxis.set_major_formatter(plt.matplotlib.dates.DateFormatter('%b %Y'))
     ax.xaxis.set_major_locator(plt.matplotlib.dates.MonthLocator())
     plt.xticks(rotation=45, ha='right')
@@ -255,6 +276,7 @@ def create_chart_market_share(forecast, project_root):
     ax.grid(alpha=ALPHA_GRID, linestyle='--')
     ax.set_axisbelow(True)
     ax.set_ylim([0, 100])
+    
     plt.tight_layout()
     output_path = os.path.join(project_root, '16_Forecast_Market_Share.png')
     plt.savefig(output_path, dpi=DPI, bbox_inches='tight')
@@ -263,37 +285,82 @@ def create_chart_market_share(forecast, project_root):
 
 
 def create_chart_scenarios(project_root):
+    """
+    Chart 5: Scenario comparison - baseline vs optimiste vs prudent
+    Shows best case, normal case, and worst case forecasts
+    """
     baseline_file = os.path.join(project_root, 'step6_forecast_s1_2026_baseline.csv')
     optimiste_file = os.path.join(project_root, 'step6_forecast_s1_2026_optimiste.csv')
     prudent_file = os.path.join(project_root, 'step6_forecast_s1_2026_prudent.csv')
+    
+    # Check if baseline exists (required)
     if not os.path.exists(baseline_file):
-        print(f"  ⚠️  Scenario files not found. Skipping scenario comparison chart.")
+        print(f"  ⚠️  Baseline scenario file not found.")
+        print(f"     Run: python add_macro_scenarios.py && python step6_modeling.py")
         return
+    
+    # Load baseline (required)
+    print(f"  ✅ Loading baseline scenario...")
     baseline = pd.read_csv(baseline_file)
-    optimiste = pd.read_csv(optimiste_file) if os.path.exists(optimiste_file) else None
-    prudent = pd.read_csv(prudent_file) if os.path.exists(prudent_file) else None
     baseline['Date'] = pd.to_datetime(baseline['Date'])
-    if optimiste is not None:
+    
+    # Load optimiste (optional)
+    optimiste = None
+    if os.path.exists(optimiste_file):
+        optimiste = pd.read_csv(optimiste_file)
         optimiste['Date'] = pd.to_datetime(optimiste['Date'])
-    if prudent is not None:
+        print(f"  ✅ Loaded optimiste scenario")
+    else:
+        print(f"  ⚠️  Optimiste file not found")
+    
+    # Load prudent (optional)
+    prudent = None
+    if os.path.exists(prudent_file):
+        prudent = pd.read_csv(prudent_file)
         prudent['Date'] = pd.to_datetime(prudent['Date'])
+        print(f"  ✅ Loaded prudent scenario")
+    else:
+        print(f"  ⚠️  Prudent file not found")
+    
+    # Create figure
     fig, ax = plt.subplots(figsize=(CHART_WIDTH, CHART_HEIGHT))
-    ax.plot(baseline['Date'], baseline['PREV_TOTAL_MARCHE'], marker='o', linewidth=LINE_WIDTH, markersize=MARKER_SIZE, color=COLORS['baseline'], label='Baseline', alpha=0.85)
+    
+    # Plot baseline (always)
+    ax.plot(baseline['Date'], baseline['PREV_TOTAL_MARCHE'], 
+            marker='o', linewidth=3, markersize=9, 
+            color=COLORS['baseline'], label='Baseline (Normal)', alpha=0.9, zorder=3)
+    
+    # Plot optimiste (if available)
     if optimiste is not None:
-        ax.plot(optimiste['Date'], optimiste['PREV_TOTAL_MARCHE'], marker='s', linewidth=LINE_WIDTH, markersize=MARKER_SIZE, color=COLORS['optimiste'], label='Optimiste', alpha=0.85)
+        ax.plot(optimiste['Date'], optimiste['PREV_TOTAL_MARCHE'], 
+                marker='s', linewidth=LINE_WIDTH, markersize=MARKER_SIZE, 
+                color=COLORS['optimiste'], label='Optimiste (Strong Growth)', alpha=0.85, zorder=2)
+    
+    # Plot prudent (if available)
     if prudent is not None:
-        ax.plot(prudent['Date'], prudent['PREV_TOTAL_MARCHE'], marker='^', linewidth=LINE_WIDTH, markersize=MARKER_SIZE, color=COLORS['prudent'], label='Prudent', alpha=0.85)
+        ax.plot(prudent['Date'], prudent['PREV_TOTAL_MARCHE'], 
+                marker='^', linewidth=LINE_WIDTH, markersize=MARKER_SIZE, 
+                color=COLORS['prudent'], label='Prudent (Weak Growth)', alpha=0.85, zorder=2)
+    
+    # Fill between optimiste and prudent if both available
     if (optimiste is not None) and (prudent is not None):
-        ax.fill_between(baseline['Date'], prudent['PREV_TOTAL_MARCHE'], optimiste['PREV_TOTAL_MARCHE'], alpha=ALPHA_FILL, color='gray', label='Plage de prévision')
+        ax.fill_between(baseline['Date'], 
+                        prudent['PREV_TOTAL_MARCHE'], 
+                        optimiste['PREV_TOTAL_MARCHE'],
+                        alpha=ALPHA_FILL, color='gray', label='Plage de prévision', zorder=1)
+    
+    # Formatting
     ax.set_xlabel('Mois', fontsize=12, fontweight='bold')
     ax.set_ylabel('Total Marché (Ventes)', fontsize=12, fontweight='bold')
-    ax.set_title('Comparaison des Scénarios Macroéconomiques - S1 2026', fontsize=14, fontweight='bold', pad=20)
+    ax.set_title('Comparaison des Scénarios Macroéconomiques - S1 2026', 
+                 fontsize=14, fontweight='bold', pad=20)
     ax.xaxis.set_major_formatter(plt.matplotlib.dates.DateFormatter('%b %Y'))
     ax.xaxis.set_major_locator(plt.matplotlib.dates.MonthLocator())
     plt.xticks(rotation=45, ha='right')
     ax.legend(fontsize=11, loc='best')
     ax.grid(alpha=ALPHA_GRID, linestyle='--')
     ax.set_axisbelow(True)
+    
     plt.tight_layout()
     output_path = os.path.join(project_root, '17_Forecast_Scenarios_Comparison.png')
     plt.savefig(output_path, dpi=DPI, bbox_inches='tight')
