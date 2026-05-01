@@ -562,6 +562,17 @@ def main():
                         dfm[c] = dfm[c].ffill().bfill()
 
             res = run_forecasting(dfm, df_raw, scenario_label=name)
+            
+            # Apply scenario multipliers based on economic factors (PIB index)
+            if "PIB_INDEX" in res["df_future"].columns:
+                # Use latest PIB value as scenario multiplier
+                # Baseline PIB = 100 is the reference, optimiste > 100, prudent < 100
+                pib_val = res["df_future"]["PIB_INDEX"].iloc[-1]
+                pib_baseline = 100.0
+                scenario_multiplier = pib_val / pib_baseline
+                res["df_future"]["TOTAL_PRED"] = res["df_future"]["TOTAL_PRED"] * scenario_multiplier
+                print(f"   Scenario multiplier applied: {scenario_multiplier:.4f} ({name})")
+            
             out_forecast = os.path.join(project_root, f"step6_forecast_s1_2026_{name}.csv")
             res["df_future"].rename(columns={"TOTAL_PRED": "PREV_TOTAL_MARCHE"})[["Date", "PREV_TOTAL_MARCHE"]].to_csv(out_forecast, index=False)
             print(f"Saved scenario forecast: {os.path.basename(out_forecast)}")
