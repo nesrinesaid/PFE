@@ -205,6 +205,52 @@ def main():
     for d in range(7):
         df_jour[f'JS_{d}'] = (df_jour['JOUR_SEMAINE'] == d).astype(int)
 
+    # ============================================================
+    # PART 4b: Enhanced Feature Engineering
+    # ============================================================
+    print("\nPART 4b: Enhanced feature engineering (domain-specific)...")
+
+    # Feature 1: School Holidays (July-September)
+    df_jour['EST_VACANCES_SCOLAIRES'] = df_jour['MOIS'].isin([7, 8, 9]).astype(int)
+
+    # Feature 2: End of Month Effect (Day 25+)
+    df_jour['EST_FIN_MOIS'] = (df_jour['Date'].dt.day >= 25).astype(int)
+
+    # Feature 3: Beginning of Month Effect (Day 1-5)
+    df_jour['EST_DEBUT_MOIS'] = (df_jour['Date'].dt.day <= 5).astype(int)
+
+    # Feature 4: Weekday Effect (Mon-Fri)
+    df_jour['EST_JOUR_OUVRABLE'] = (df_jour['JOUR_SEMAINE'] < 5).astype(int)
+
+    # Feature 5: Public Holidays (Tunisia-specific)
+    public_holidays_tunisia = [
+        '2019-01-14','2020-01-14','2021-01-14','2022-01-14','2023-01-14','2024-01-14','2025-01-14','2026-01-14',
+        '2019-03-20','2020-03-20','2021-03-20','2022-03-20','2023-03-20','2024-03-20','2025-03-20','2026-03-20',
+        '2019-05-01','2020-05-01','2021-05-01','2022-05-01','2023-05-01','2024-05-01','2025-05-01','2026-05-01',
+        '2019-07-25','2020-07-25','2021-07-25','2022-07-25','2023-07-25','2024-07-25','2025-07-25','2026-07-25',
+    ]
+    df_jour['EST_FETE_PUBLIQUE'] = df_jour['Date'].isin(pd.to_datetime(public_holidays_tunisia)).astype(int)
+
+    # Feature 6: Quarterly Budget Cycle (start months)
+    df_jour['EST_DEBUT_TRIMESTRE'] = df_jour['Date'].dt.month.isin([1, 4, 7, 10]).astype(int)
+
+    # Feature 7: Year-End Rush (Nov-Dec)
+    df_jour['EST_NOVEMBRE_DECEMBRE'] = df_jour['MOIS'].isin([11, 12]).astype(int)
+
+    # Feature 8: New Year Effect (Jan-Feb)
+    df_jour['EST_JANVIER_FEVRIER'] = df_jour['MOIS'].isin([1, 2]).astype(int)
+
+    print("  ✅ Added 8 engineered features:")
+    print("     1. EST_VACANCES_SCOLAIRES (Jul-Sep)")
+    print("     2. EST_FIN_MOIS (Day 25+)")
+    print("     3. EST_DEBUT_MOIS (Day 1-5)")
+    print("     4. EST_JOUR_OUVRABLE (Mon-Fri)")
+    print("     5. EST_FETE_PUBLIQUE (Tunisia holidays)")
+    print("     6. EST_DEBUT_TRIMESTRE (Quarter starts)")
+    print("     7. EST_NOVEMBRE_DECEMBRE (Nov-Dec)")
+    print("     8. EST_JANVIER_FEVRIER (Jan-Feb)")
+    # ============================================================
+
     # PART 5: Lag features
     print("\nPART 5: Lag features...")
     lag_cols = ['VENTES_LAG1', 'VENTES_LAG7', 'VENTES_LAG30', 'VENTES_LAG90']
@@ -234,6 +280,8 @@ def main():
 
     model_features = [
         'EST_VU', 'EST_RAMADAN',
+        'EST_VACANCES_SCOLAIRES', 'EST_FIN_MOIS', 'EST_DEBUT_MOIS', 'EST_JOUR_OUVRABLE',
+        'EST_FETE_PUBLIQUE', 'EST_DEBUT_TRIMESTRE', 'EST_NOVEMBRE_DECEMBRE', 'EST_JANVIER_FEVRIER',
         'VENTES_LAG1', 'VENTES_LAG7', 'VENTES_LAG30', 'VENTES_LAG90',
         'VENTES_MA7', 'VENTES_MA30', 'VENTES_MA90',
         'Mois_1', 'Mois_2', 'Mois_3', 'Mois_4', 'Mois_5', 'Mois_6',
