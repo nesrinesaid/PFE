@@ -41,6 +41,10 @@ RAMADAN_RANGES = [
 ]
 
 ARTES_BRANDS = {"RENAULT", "DACIA", "NISSAN"}
+FORECAST_GROUP_LIMITS = {
+    "SEGMENT": 30,
+    "SOUS_SEGMENT": 60,
+}
 
 
 @dataclass
@@ -410,6 +414,127 @@ def build_city_watch(df_raw):
     return watch
 
 
+def build_group_monthly_panel(df_raw, group_col):
+    """Build a monthly panel of sales by categorical group on IM_RI=10 rows."""
+    if group_col not in df_raw.columns:
+        raise ValueError(f"{group_col} column missing in data_cleaned_enriched.csv")
+
+    tmp = df_raw.copy()
+    tmp["IM_RI"] = pd.to_numeric(tmp["IM_RI"], errors="coerce").round().astype("Int64")
+    tmp = tmp[tmp["IM_RI"].eq(10)].copy()
+    tmp["Date"] = pd.to_datetime(tmp["DATV"], errors="coerce").dt.to_period("M").dt.to_timestamp()
+    tmp = tmp.dropna(subset=["Date"]).copy()
+
+    group_series = tmp[group_col].fillna("UNKNOWN").astype(str).str.strip()
+    group_series = group_series.replace({"": "UNKNOWN", "0": "UNKNOWN", "0.0": "UNKNOWN", "NAN": "UNKNOWN"})
+    tmp[group_col] = group_series
+
+    monthly_total = tmp.groupby("Date").size().rename("TOTAL").reset_index()
+    grouped = tmp.groupby(["Date", group_col]).size().rename("VOL").reset_index()
+
+    dates = pd.date_range(monthly_total["Date"].min(), monthly_total["Date"].max(), freq="MS")
+    categories = sorted(grouped[group_col].dropna().astype(str).unique())
+    panel = pd.MultiIndex.from_product([dates, categories], names=["Date", group_col]).to_frame(index=False)
+    panel = panel.merge(grouped, on=["Date", group_col], how="left")
+    panel = panel.merge(monthly_total, on="Date", how="left")
+    panel["VOL"] = panel["VOL"].fillna(0.0)
+    panel["TOTAL"] = panel["TOTAL"].fillna(0.0)
+    panel["SHARE"] = np.where(panel["TOTAL"] > 0, panel["VOL"] / panel["TOTAL"], 0.0)
+    panel["RAMADAN_DAYS"] = panel["Date"].map(month_ramadan_days)
+    panel["EST_RAMADAN"] = (panel["RAMADAN_DAYS"] > 0).astype(int)
+    panel["MOIS"] = panel["Date"].dt.month
+    panel["ANNEE"] = panel["Date"].dt.year
+    return panel
+
+
+def forecast_group_shares(panel, group_col, future_dates, future_total_pred, top_n=None):
+    """Fit one share model per category and forecast grouped monthly volumes."""
+    if panel.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    cat_counts = panel.groupby(group_col).size().sort_values(ascending=False)
+    categories = list(cat_counts.index)
+    if top_n is not None:
+        categories = categories[:top_n]
+
+    forecast_rows = []
+    metric_rows = []
+
+    for category in categories:
+        series = panel[panel[group_col] == category].copy().sort_values("Date").reset_index(drop=True)
+        series = series[["Date", "TOTAL", "SHARE", "RAMADAN_DAYS", "EST_RAMADAN", "MOIS", "ANNEE"]].copy()
+
+        sup, features, target = make_share_supervised(series, "SHARE")
+        train = sup[sup["Date"] < pd.Timestamp("2025-01-01")].copy()
+        test = sup[(sup["Date"] >= pd.Timestamp("2025-01-01")) & (sup["Date"] <= pd.Timestamp("2025-12-01"))].copy()
+
+        model = None
+        if not train.empty:
+            model = build_ml_regressor()
+            model.fit(train[features], train[target])
+
+        if not test.empty:
+            if model is not None:
+                pred_share = np.clip(model.predict(test[features]), 0.0, 1.0)
+            else:
+                pred_share = np.repeat(float(series["SHARE"].iloc[-1]) if not series.empty else 0.0, len(test))
+            pred_vol = pred_share * test["TOTAL"].values
+            metric_rows.append({
+                group_col: category,
+                "model": "SHARE_MODEL",
+                "share_mae": float(mean_absolute_error(test["SHARE"], pred_share)),
+                "share_rmse": float(np.sqrt(mean_squared_error(test["SHARE"], pred_share))),
+                "share_smape": float(smape(test["SHARE"], pred_share)),
+                "volume_mae": float(mean_absolute_error(test["SHARE"] * test["TOTAL"].values, pred_vol)),
+                "volume_rmse": float(np.sqrt(mean_squared_error(test["SHARE"] * test["TOTAL"].values, pred_vol))),
+                "volume_smape": float(smape(test["SHARE"] * test["TOTAL"].values, pred_vol)),
+                "train_months": int(len(train)),
+                "test_months": int(len(test)),
+            })
+
+        hist = series.copy().reset_index(drop=True)
+        for d, total_pred in zip(future_dates, future_total_pred):
+            if model is not None:
+                feat_dict = one_step_share_features(hist, d, "SHARE", [])
+                feat_df = pd.DataFrame([feat_dict])[features]
+                share_pred = float(np.clip(model.predict(feat_df)[0], 0.0, 1.0))
+            else:
+                share_pred = float(hist["SHARE"].iloc[-1]) if not hist.empty else 0.0
+
+            forecast_rows.append({
+                "Date": d,
+                group_col: category,
+                "RAW_SHARE": share_pred,
+                "TOTAL_PRED": float(total_pred),
+            })
+            hist = pd.concat([
+                hist,
+                pd.DataFrame([{
+                    "Date": d,
+                    "TOTAL": float(total_pred),
+                    "SHARE": share_pred,
+                    "RAMADAN_DAYS": month_ramadan_days(d),
+                    "EST_RAMADAN": int(month_ramadan_days(d) > 0),
+                    "MOIS": pd.Timestamp(d).month,
+                    "ANNEE": pd.Timestamp(d).year,
+                }])
+            ], ignore_index=True)
+
+    forecast_df = pd.DataFrame(forecast_rows)
+    if forecast_df.empty:
+        return forecast_df, pd.DataFrame(metric_rows)
+
+    forecast_df["SHARE_NORM"] = forecast_df["RAW_SHARE"].clip(lower=0.0)
+    month_sum = forecast_df.groupby("Date")["SHARE_NORM"].transform("sum")
+    forecast_df["SHARE_NORM"] = np.where(month_sum > 0, forecast_df["SHARE_NORM"] / month_sum, 0.0)
+    forecast_df["PREV_VENTES"] = forecast_df["TOTAL_PRED"] * forecast_df["SHARE_NORM"]
+    forecast_df = forecast_df.rename(columns={"SHARE_NORM": "PREV_SHARE"})
+    forecast_df = forecast_df[["Date", group_col, "PREV_SHARE", "PREV_VENTES"]].sort_values(["Date", group_col]).reset_index(drop=True)
+
+    metrics_df = pd.DataFrame(metric_rows)
+    return forecast_df, metrics_df
+
+
 def main():
     print("STEP 6 - MODELING & FORECASTING (S1 2026)\n")
     project_root = os.path.dirname(os.path.abspath(__file__))
@@ -562,6 +687,7 @@ def main():
                         dfm[c] = dfm[c].ffill().bfill()
 
             res = run_forecasting(dfm, df_raw, scenario_label=name)
+            scenario_multiplier = 1.0
             
             # Apply scenario multipliers based on economic factors (PIB index)
             if "PIB_INDEX" in res["df_future"].columns:
@@ -576,6 +702,32 @@ def main():
             out_forecast = os.path.join(project_root, f"step6_forecast_s1_2026_{name}.csv")
             res["df_future"].rename(columns={"TOTAL_PRED": "PREV_TOTAL_MARCHE"})[["Date", "PREV_TOTAL_MARCHE"]].to_csv(out_forecast, index=False)
             print(f"Saved scenario forecast: {os.path.basename(out_forecast)}")
+            scenario_segment, scenario_segment_metrics = forecast_group_shares(
+                build_group_monthly_panel(df_raw, "SEGMENT"),
+                "SEGMENT",
+                res["df_future"]["Date"].values,
+                res["df_future"]["TOTAL_PRED"].values,
+                top_n=FORECAST_GROUP_LIMITS["SEGMENT"],
+            )
+            scenario_sous, scenario_sous_metrics = forecast_group_shares(
+                build_group_monthly_panel(df_raw, "SOUS_SEGMENT"),
+                "SOUS_SEGMENT",
+                res["df_future"]["Date"].values,
+                res["df_future"]["TOTAL_PRED"].values,
+                top_n=FORECAST_GROUP_LIMITS["SOUS_SEGMENT"],
+            )
+            out_segment = os.path.join(project_root, f"step6_forecast_s1_2026_by_segment_{name}.csv")
+            out_segment_metrics = os.path.join(project_root, f"step6_metrics_summary_by_segment_{name}.csv")
+            out_sous = os.path.join(project_root, f"step6_forecast_s1_2026_by_sous_segment_{name}.csv")
+            out_sous_metrics = os.path.join(project_root, f"step6_metrics_summary_by_sous_segment_{name}.csv")
+            scenario_segment["PREV_VENTES"] = scenario_segment["PREV_VENTES"] * scenario_multiplier
+            scenario_sous["PREV_VENTES"] = scenario_sous["PREV_VENTES"] * scenario_multiplier
+            scenario_segment.to_csv(out_segment, index=False)
+            scenario_segment_metrics.to_csv(out_segment_metrics, index=False)
+            scenario_sous.to_csv(out_sous, index=False)
+            scenario_sous_metrics.to_csv(out_sous_metrics, index=False)
+            print(f"Saved scenario segment forecast: {os.path.basename(out_segment)}")
+            print(f"Saved scenario sous-segment forecast: {os.path.basename(out_sous)}")
             out_metrics = os.path.join(project_root, f"step6_metrics_summary_{name}.csv")
             pd.DataFrame([{"name": m.name, "mae": m.mae, "rmse": m.rmse, "smape": m.smape} for m in res["model_results"]]).to_csv(out_metrics, index=False)
             print(f"Saved scenario metrics: {os.path.basename(out_metrics)}")
@@ -771,6 +923,27 @@ def main():
     print("4) Build city watch output...")
     city_watch = build_city_watch(df_raw)
 
+    # Model 5: grouped forecasts by segment hierarchy.
+    print("5) Forecast ventes par SEGMENT...")
+    segment_panel = build_group_monthly_panel(df_raw, "SEGMENT")
+    segment_forecast, segment_metrics = forecast_group_shares(
+        segment_panel,
+        "SEGMENT",
+        future_dates,
+        df_future["TOTAL_PRED"].values,
+        top_n=FORECAST_GROUP_LIMITS["SEGMENT"],
+    )
+
+    print("6) Forecast ventes par SOUS_SEGMENT...")
+    sous_segment_panel = build_group_monthly_panel(df_raw, "SOUS_SEGMENT")
+    sous_segment_forecast, sous_segment_metrics = forecast_group_shares(
+        sous_segment_panel,
+        "SOUS_SEGMENT",
+        future_dates,
+        df_future["TOTAL_PRED"].values,
+        top_n=FORECAST_GROUP_LIMITS["SOUS_SEGMENT"],
+    )
+
     # Consolidated S1 2026 output.
     forecast = future_slice[["Date", "TOTAL", "VP", "VU", "PART_VP", "PART_VU", "RAMADAN_DAYS"]].copy()
     forecast = forecast.rename(columns={"TOTAL": "PREV_TOTAL_MARCHE", "VP": "PREV_VP", "VU": "PREV_VU"})
@@ -783,6 +956,10 @@ def main():
     out_backtest = os.path.join(project_root, "step6_backtest_2025_total.csv")
     out_city = os.path.join(project_root, "step6_city_watch_s1_2025_vs_2024.csv")
     out_artes_hist = os.path.join(project_root, "step6_artes_monthly_history.csv")
+    out_segment_forecast = os.path.join(project_root, "step6_forecast_s1_2026_by_segment.csv")
+    out_segment_metrics = os.path.join(project_root, "step6_metrics_summary_by_segment.csv")
+    out_sous_forecast = os.path.join(project_root, "step6_forecast_s1_2026_by_sous_segment.csv")
+    out_sous_metrics = os.path.join(project_root, "step6_metrics_summary_by_sous_segment.csv")
 
     forecast.to_csv(out_forecast, index=False)
     pd.DataFrame(
@@ -802,6 +979,10 @@ def main():
 
     city_watch.to_csv(out_city, index=False)
     df_month[["Date", "ARTES_VOL", "ARTES_SHARE", "TOTAL"]].to_csv(out_artes_hist, index=False)
+    segment_forecast.to_csv(out_segment_forecast, index=False)
+    segment_metrics.to_csv(out_segment_metrics, index=False)
+    sous_segment_forecast.to_csv(out_sous_forecast, index=False)
+    sous_segment_metrics.to_csv(out_sous_metrics, index=False)
 
     # Visual summary.
     fig, axes = plt.subplots(2, 2, figsize=(16, 10))

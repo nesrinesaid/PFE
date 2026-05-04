@@ -264,10 +264,21 @@ def main():
     # Valeurs: 'VP' = Vehicules Particuliers, 'VU' = Vehicules Utilitaires.
     # Cet enrichissement est requis pour step4, step5 et step6.
     if 'Marché' in df.columns:
-        df['TYPE_MARCHE'] = df['Marché'].astype(str).str.upper().str.extract(r'(VP|VU)', expand=False)
-        print("  Creation de TYPE_MARCHE depuis Marche")
+        # Normalize Marche labels (preserve variants like 'marché autre)')
+        df['Marché'] = df['Marché'].astype(str).str.strip()
+        # Remove stray trailing parenthesis but keep the label text (e.g. 'marché autre)') -> 'marché autre'
+        df['Marché'] = df['Marché'].str.replace(r"\)$", "", regex=True)
+        # Create TYPE_MARCHE with three categories: VP, VU, AUTRE
+        extracted = df['Marché'].str.upper().str.extract(r'(VP|VU)', expand=False)
+        # Detect explicit 'AUTRE' mentions (case-insensitive) or common phrases
+        is_autre = df['Marché'].str.upper().str.contains('AUTRE|MARCHE AUTRE|AUTRES', na=False)
+        df['TYPE_MARCHE'] = extracted
+        df.loc[is_autre & df['TYPE_MARCHE'].isna(), 'TYPE_MARCHE'] = 'AUTRE'
+        # For any remaining NaN, keep as NaN (will be mode-filled later if needed)
+        print("  Creation de TYPE_MARCHE depuis Marche (VP / VU / AUTRE)")
         print(f"    VP (Particuliers): {(df['TYPE_MARCHE'] == 'VP').sum():,}")
         print(f"    VU (Utilitaires):  {(df['TYPE_MARCHE'] == 'VU').sum():,}")
+        print(f"    AUTRE:              {(df['TYPE_MARCHE'] == 'AUTRE').sum():,}")
     else:
         df['TYPE_MARCHE'] = np.nan
 

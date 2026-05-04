@@ -248,18 +248,25 @@ def main():
         return
 
     if df_neuf[colonne_marche].notna().sum() > 0:
-        marche_counts = df_neuf[colonne_marche].value_counts()
+        # Clean and normalize labels so variants like 'marché autre)' are captured as 'Autre'
+        marche_series = df_neuf[colonne_marche].astype(str).str.strip()
+        marche_series = marche_series.str.replace(r'\)$', '', regex=True)
+        marche_series = marche_series.str.replace(r'(?i).*autre.*', 'Autre', regex=True)
+        marche_counts = marche_series.value_counts()
+
         plt.figure(figsize=(8, 6))
-        colors = ['#2196F3', '#FF9800', '#4CAF50'][:len(marche_counts)]
+        colors = ['#2196F3', '#FF9800', '#4CAF50', '#9C27B0'][:len(marche_counts)]
         wedges, texts, autotexts = plt.pie(
             marche_counts.values,
             labels=marche_counts.index,
             autopct='%1.1f%%',
             colors=colors,
-            startangle=90
+            startangle=90,
+            pctdistance=0.8
         )
         for t in autotexts:
             t.set_fontsize(10)
+
         plt.title('Répartition par Type de Marché (Neufs, IM_RI=10)',
                   fontsize=14, fontweight='bold')
         nn = df_neuf[colonne_marche].notna().sum()
@@ -273,18 +280,19 @@ def main():
     # ── GRAPH 9: Sales by CONTINENT ───────────────────────────────────────────
     if 'CONTINENT' in df_neuf.columns and df_neuf['CONTINENT'].notna().sum() > 0:
         cont_counts = df_neuf['CONTINENT'].value_counts()
-        plt.figure(figsize=(8, 6))
         colors = ['#3498DB', '#E74C3C', '#2ECC71', '#F39C12'][:len(cont_counts)]
-        wedges, texts, autotexts = plt.pie(
-            cont_counts.values,
-            labels=cont_counts.index,
-            autopct='%1.1f%%',
-            colors=colors,
-            startangle=90
-        )
-        for t in autotexts:
-            t.set_fontsize(10)
+        plt.figure(figsize=(10, 6))
+        ax = cont_counts.plot(kind='barh', color=colors, edgecolor='black', linewidth=1.2)
         plt.title('Ventes Neufs par Continent d\'Origine', fontsize=14, fontweight='bold')
+        plt.xlabel('Nombre de vehicules')
+        plt.ylabel('Continent')
+        plt.gca().invert_yaxis()
+        for p in ax.patches:
+            width = p.get_width()
+            pct = 100 * width / cont_counts.sum()
+            ax.annotate(f"{int(width):,}\n({pct:.1f}%)",
+                        (width, p.get_y() + p.get_height() / 2),
+                        va='center', ha='left', fontsize=10, fontweight='bold')
         nn = df_neuf['CONTINENT'].notna().sum()
         plt.figtext(0.5, 0.01, f'Coverage: {nn:,} / {len(df_neuf):,} ({nn/len(df_neuf)*100:.1f}%)',
                     ha='center', fontsize=8, color='gray')

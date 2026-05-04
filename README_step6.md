@@ -7,8 +7,10 @@ This step reproduces the main ARTES report outputs using monthly forecasts on `I
 1. **Total monthly market forecast** (VP + VU) — SARIMAX + Prophet ensemble
 2. **VP/VU decomposition forecast** — XGBoost share model
 3. **ARTES brands combined forecast** (Renault + Dacia + Nissan) — XGBoost volume model
-4. **City watch table** (S1 2025 vs S1 2024) — Transaction-level monitoring
-5. **Scenario analysis** — Multiple macro scenarios (baseline/optimiste/prudent)
+4. **Segment forecast** (`SEGMENT`) — monthly share model on new vehicles only
+5. **Sous-segment forecast** (`SOUS_SEGMENT`) — monthly share model on new vehicles only
+6. **City watch table** (S1 2025 vs S1 2024) — Transaction-level monitoring
+7. **Scenario analysis** — Multiple macro scenarios (baseline/optimiste/prudent)
 
 ## Main script
 
@@ -25,12 +27,20 @@ This step reproduces the main ARTES report outputs using monthly forecasts on `I
 - `step6_backtest_2025_total.csv` — Actual vs predicted for 2025
 - `step6_city_watch_s1_2025_vs_2024.csv` — Top cities, growth %
 - `step6_artes_monthly_history.csv` — Historical ARTES volumes
+- `step6_forecast_s1_2026_by_segment.csv` — Segment-level S1 2026 forecast for `IM_RI=10`
+- `step6_metrics_summary_by_segment.csv` — Segment-level backtest metrics
+- `step6_forecast_s1_2026_by_sous_segment.csv` — Sous-segment S1 2026 forecast for `IM_RI=10`
+- `step6_metrics_summary_by_sous_segment.csv` — Sous-segment backtest metrics
 - `12_Step6_Forecasts_S1_2026.png` — 4-panel visualization
 
 ### Scenario outputs (if scenario sheets detected)
 
 - `step6_forecast_s1_2026_baseline.csv`, `_optimiste.csv`, `_prudent.csv`
 - `step6_metrics_summary_baseline.csv`, `_optimiste.csv`, `_prudent.csv`
+- `step6_forecast_s1_2026_by_segment_baseline.csv`, `_optimiste.csv`, `_prudent.csv`
+- `step6_metrics_summary_by_segment_baseline.csv`, `_optimiste.csv`, `_prudent.csv`
+- `step6_forecast_s1_2026_by_sous_segment_baseline.csv`, `_optimiste.csv`, `_prudent.csv`
+- `step6_metrics_summary_by_sous_segment_baseline.csv`, `_optimiste.csv`, `_prudent.csv`
 - `rapport_ARTES_s1_2026_by_scenario.csv` — Consolidated summary
 - `rapport_ARTES_monthly_by_scenario.csv` — Monthly detail
 - `rapport_ARTES_s1_2026_by_scenario.png` — Scenario comparison chart
