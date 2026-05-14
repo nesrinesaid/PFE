@@ -23,6 +23,7 @@ PFE/
 ├── step4_eda.py                   # Exploratory plots + insights
 ├── step5_preparation.py           # Daily aggregation, features, normalization → modeling CSVs
 ├── step6_modeling.py              # SARIMAX + Prophet + XGBoost ensemble → forecasts
+├── step6_datamining.py            # K-Means + Apriori mining → hidden patterns/rules
 ├── add_macro_scenarios.py         # Populate Excel with baseline/optimiste/prudent scenarios
 ├── produce_artes_report.py        # Consolidate scenario outputs → final report
 │
@@ -35,6 +36,7 @@ PFE/
 │   └── donnees_externes_tunisie.xlsx  (macro scenarios)
 │
 ├── README.md                      # This file (project overview)
+├── README_ARCHITECTURE.md         # Deep architecture, logic, and design rationale
 ├── README_step6.md                # Step 6 detailed documentation
 ├── SCENARIO_SETUP.md              # Scenario configuration guide
 ├── requirements.txt               # Python dependencies
@@ -81,6 +83,9 @@ python verifier_pret.py
 
 # Step 6: Forecast with SARIMAX + Prophet + XGBoost
 python step6_modeling.py
+
+# Step 6.5: Data mining (clustering + association rules)
+python step6_datamining.py --input data_prepared_final.csv
 ```
 
 **Expected runtime**: ~5 minutes (mostly step 6 SARIMAX fitting)
@@ -181,6 +186,7 @@ Report generation (produce_artes_report.py)
 ## Documentation
 
 - **README_step6.md** — Detailed Step 6 documentation: outputs, metrics interpretation, troubleshooting
+- **README_ARCHITECTURE.md** — Comprehensive architecture + step-by-step logic + reasoning behind choices
 - **SCENARIO_SETUP.md** — How to set up & customize macroeconomic scenarios
 - **valider_pipeline.py** — Validation utilities (check column presence, data completeness)
 - **verifier_pret.py** — Pre-step6 readiness checker
@@ -194,6 +200,7 @@ Report generation (produce_artes_report.py)
 | `step4_eda.py` | Generate 12 EDA plots (distributions, seasonality, top brands/cities) |
 | `step5_preparation.py` | Daily aggregation, lag/MA features, normalization, Ramadan flag, 2026 placeholder |
 | `step6_modeling.py` | SARIMAX + Prophet + XGBoost ensemble, backtesting, scenario support |
+| `step6_datamining.py` | K-Means clustering + Apriori association rules (+ top-15 clean rules export) |
 | `add_macro_scenarios.py` | Populate Excel scenarios (run before step6 for multi-scenario analysis) |
 | `produce_artes_report.py` | Consolidate scenario CSVs → summary table, PNG, text for mémoire |
 
