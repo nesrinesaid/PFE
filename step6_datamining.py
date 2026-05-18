@@ -141,17 +141,84 @@ def run_kmeans(pivot, k_min=2, k_max=6, random_state=42):
 def plot_cluster_profiles(pivot, labels, out_path: Path):
     dfp = pivot.copy()
     dfp['cluster'] = labels
-    centers = dfp.groupby('cluster').mean().T
-
-    plt.figure(figsize=(10, 4 + 0.3 * max(1, centers.shape[1])))
-    for c in centers.columns:
-        plt.plot(centers.index.astype(str), centers[c], marker='o', label=f'cluster {c}')
+    
+    # Aggregate to yearly volumes
+    yearly_data = {}
+    for col in dfp.columns:
+        if col != 'cluster':
+            try:
+                # Try to extract year from the period column
+                if isinstance(col, pd.Timestamp):
+                    year = col.year
+                elif hasattr(col, 'year'):
+                    year = col.year
+                else:
+                    # Fallback: treat col as a string or numeric period
+                    year_str = str(col).split('-')[0] if '-' in str(col) else str(col)[:4]
+                    try:
+                        year = int(year_str)
+                    except:
+                        year = col
+                
+                if year not in yearly_data:
+                    yearly_data[year] = {}
+                yearly_data[year][col] = dfp[col]
+            except:
+                pass
+    
+    # Reshape to yearly aggregated view
+    yearly_pivot = pd.DataFrame()
+    for year in sorted(yearly_data.keys()):
+        yearly_pivot[str(year)] = dfp[[c for c in yearly_data[year].keys()]].sum(axis=1)
+    
+    if yearly_pivot.empty:
+        yearly_pivot = dfp.iloc[:, dfp.columns != 'cluster'].copy()
+    
+    yearly_pivot['cluster'] = labels
+    
+    # Generate meaningful cluster names based on characteristics
+    cluster_names = {}
+    for cluster_id in sorted(yearly_pivot['cluster'].unique()):
+        cluster_mask = yearly_pivot['cluster'] == cluster_id
+        cluster_volumes = yearly_pivot.loc[cluster_mask, yearly_pivot.columns != 'cluster'].values.flatten()
+        cluster_volumes = cluster_volumes[cluster_volumes > 0]  # Exclude zeros
+        
+        if len(cluster_volumes) > 0:
+            avg_vol = cluster_volumes.mean()
+            vol_std = cluster_volumes.std()
+            vol_min = cluster_volumes.min()
+            vol_max = cluster_volumes.max()
+            trend = "↑" if vol_max > avg_vol * 1.1 else ("↓" if vol_min < avg_vol * 0.9 else "→")
+            
+            # Assign meaningful name based on volume level and trend
+            if avg_vol > cluster_volumes.mean() * 1.2:
+                level = "High"
+            elif avg_vol < cluster_volumes.mean() * 0.8:
+                level = "Low"
+            else:
+                level = "Medium"
+            
+            volatility = "Volatile" if vol_std > avg_vol * 0.3 else "Stable"
+            
+            cluster_names[cluster_id] = f"{level}-Volume {volatility} {trend}"
+        else:
+            cluster_names[cluster_id] = f"Cluster {cluster_id}"
+    
+    # Plot yearly aggregated data
+    centers = yearly_pivot.groupby('cluster').mean().T
+    
+    plt.figure(figsize=(12, 5 + 0.3 * max(1, centers.shape[1])))
+    for c in sorted(centers.columns):
+        label_name = cluster_names.get(c, f'Cluster {c}')
+        plt.plot(centers.index.astype(str), centers[c], marker='o', linewidth=2, markersize=8, label=label_name)
+    
     plt.xticks(rotation=45)
-    plt.title('Cluster profiles (monthly volume)')
-    plt.xlabel('Period')
-    plt.ylabel('Average volume')
+    plt.title('Cluster profiles (yearly volume aggregated)')
+    plt.xlabel('Year')
+    plt.ylabel('Total yearly volume')
+    plt.grid(True, alpha=0.3)
     if centers.shape[1] > 0:
-        plt.legend()
+        plt.legend(loc='best')
     plt.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(out_path, dpi=150)
@@ -210,6 +277,10 @@ def _prepare_apriori_features(df, type_col, vol_col):
             selected.append(c)
 
     if len(selected) < 2:
+        print(f'⚠️  Apriori will be skipped: only {len(selected)} categorical feature(s) with sufficient variation found.')
+        if selected:
+            print(f'    Found: {selected}')
+        print(f'    Need: at least 2 features for meaningful association rules')
         return work, []
     return work, selected
 
@@ -355,9 +426,11 @@ def main(argv):
             print(f'Wrote top clean rules to {top_csv} and {top_md}')
     else:
         if apriori is None:
-            warnings.warn('mlxtend not installed: skipping apriori. Install mlxtend to enable rules.')
+            print('⚠️  Apriori skipped: mlxtend not installed. Run: pip install mlxtend')
         else:
-            warnings.warn('Not enough categorical columns for apriori; found: ' + ','.join(cat_cols))
+            print(f'⚠️  Apriori skipped: insufficient categorical features (found {len(cat_cols)} with variation, need ≥2).')
+            if cat_cols:
+                print(f'    Available features: {cat_cols}')
 
 
 if __name__ == '__main__':

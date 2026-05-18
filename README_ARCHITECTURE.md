@@ -235,6 +235,11 @@ Why K-Means here?
 2. easy to explain in a report,
 3. naturally produces discrete behavioral segments.
 
+Clustering granularity depends on input data:
+- **With `TYPE_MARCHE` only** (`VP`, `VU`): 2 samples → trivial 2-cluster segmentation. Silhouette score is `NA`.
+- **With `CD_TYP_CONS`** (12–50 vehicle types): Richer behavioral profiles → deeper, more actionable clusters.
+- **With finer attributes** (CD_ENERGIE, CD_USAGE, etc.): Even richer segmentation; silhouette scores become meaningful.
+
 Current dataset note:
 - with only `TYPE_MARCHE` (`VP`, `VU`) available, clustering is intentionally simple (2 samples).
 - richer clustering emerges when `CD_TYP_CONS` or finer vehicle types are present.
